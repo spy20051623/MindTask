@@ -19,7 +19,7 @@ python scripts/setup_MindTask_db.py
 ## 3. Create And List Tasks
 
 ```bash
-python MindTask_cli.py add "Plan the week" --priority high --due tomorrow
+python MindTask_cli.py add "Plan the week" --priority high --due "2026-05-15 18:00:00"
 python MindTask_cli.py list --detailed
 ```
 
@@ -31,12 +31,6 @@ python MindTask_cli.py undo
 ```
 
 ## 5. Optional Interfaces
-
-Interactive shell:
-
-```bash
-python MindTask_shell.py
-```
 
 MCP JSON-RPC self-test:
 

@@ -2,6 +2,8 @@
 
 Use these docs when you need more detail than the root `README.md`.
 
+MindTask is developed with assistance from Codex.
+
 - [Quickstart](quickstart.md): initialize the app and run the first commands
 - [CLI Reference](cli-reference.md): command list, options, and examples
 - [MCP Integration](mcp-integration.md): JSON-RPC server usage and method list

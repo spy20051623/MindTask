@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     description TEXT DEFAULT '',
     project_id INTEGER,
     priority INTEGER DEFAULT 0 CHECK (priority BETWEEN 0 AND 3),
-    status INTEGER DEFAULT 0 CHECK (status BETWEEN 0 AND 2),
+    status INTEGER DEFAULT 0 CHECK (status BETWEEN 0 AND 3),
     due_date TIMESTAMP,
     completed_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -91,9 +91,10 @@ SELECT
     END AS priority_text,
     t.status,
     CASE t.status
-        WHEN 0 THEN 'Open'
-        WHEN 1 THEN 'Doing'
-        WHEN 2 THEN 'Done'
+        WHEN 0 THEN 'not_started'
+        WHEN 1 THEN 'in_progress'
+        WHEN 2 THEN 'suspended'
+        WHEN 3 THEN 'completed'
         ELSE 'Unknown'
     END AS status_text,
     t.due_date,
@@ -121,9 +122,10 @@ SELECT
     END AS priority_text,
     t.status,
     CASE t.status
-        WHEN 0 THEN 'Open'
-        WHEN 1 THEN 'Doing'
-        WHEN 2 THEN 'Done'
+        WHEN 0 THEN 'not_started'
+        WHEN 1 THEN 'in_progress'
+        WHEN 2 THEN 'suspended'
+        WHEN 3 THEN 'completed'
         ELSE 'Unknown'
     END AS status_text,
     t.due_date,

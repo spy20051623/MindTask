@@ -8,15 +8,14 @@ import csv
 import io
 import json
 import sys
-from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from .. import __version__
-from ..core import MindTaskDB
+from ..core import MindTaskDB, normalize_due_date
 
 
 PRIORITY_NAMES = {0: "None", 1: "Low", 2: "Medium", 3: "High"}
-STATUS_NAMES = {0: "Open", 1: "Doing", 2: "Done"}
+STATUS_NAMES = {0: "not_started", 1: "in_progress", 2: "suspended", 3: "completed"}
 PRIORITY_INPUT = {
     "none": 0,
     "low": 1,
@@ -27,7 +26,16 @@ PRIORITY_INPUT = {
     "2": 2,
     "3": 3,
 }
-STATUS_INPUT = {"open": 0, "doing": 1, "done": 2, "0": 0, "1": 1, "2": 2}
+STATUS_INPUT = {
+    "not_started": 0,
+    "in_progress": 1,
+    "suspended": 2,
+    "completed": 3,
+    "0": 0,
+    "1": 1,
+    "2": 2,
+    "3": 3,
+}
 
 
 class MindTaskCLI:
@@ -142,12 +150,16 @@ class MindTaskCLI:
 
         total = stats.get("total_tasks", 0)
         completed = stats.get("completed_tasks", 0)
-        pending = stats.get("pending_tasks", 0)
+        not_started = stats.get("not_started_tasks", 0)
+        in_progress = stats.get("in_progress_tasks", 0)
+        suspended = stats.get("suspended_tasks", 0)
         rate = (completed / total * 100) if total else 0
         print("MindTask stats")
         print(f"Total: {total}")
+        print(f"Not started: {not_started}")
+        print(f"In progress: {in_progress}")
+        print(f"Suspended: {suspended}")
         print(f"Completed: {completed}")
-        print(f"Pending: {pending}")
         print(f"Completion rate: {rate:.1f}%")
         print(f"Upcoming in 3 days: {stats.get('upcoming_tasks', 0)}")
         return 0
@@ -257,21 +269,7 @@ def parse_status(value: str) -> int:
 
 
 def parse_due_date(value: Optional[str]) -> Optional[str]:
-    if not value:
-        return None
-
-    lower = value.lower()
-    now = datetime.now()
-    if lower == "today":
-        due = now
-    elif lower == "tomorrow":
-        due = now + timedelta(days=1)
-    elif lower.startswith("+"):
-        due = now + timedelta(days=int(lower[1:]))
-    else:
-        due = datetime.fromisoformat(value.replace(" ", "T"))
-
-    return due.replace(hour=23, minute=59, second=59).strftime("%Y-%m-%d %H:%M:%S")
+    return normalize_due_date(value)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -281,7 +279,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     list_parser = subparsers.add_parser("list", help="List tasks")
     list_parser.add_argument("--project", type=int)
-    list_parser.add_argument("--status", type=int, choices=[0, 1, 2])
+    list_parser.add_argument("--status", type=parse_status)
     list_parser.add_argument("--priority", type=int, choices=[0, 1, 2, 3])
     list_parser.add_argument("--limit", type=int)
     list_parser.add_argument("--detailed", action="store_true")

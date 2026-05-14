@@ -13,10 +13,10 @@ Global option:
 ## Task Commands
 
 ```bash
-python MindTask_cli.py add "Write report" --description "Quarterly summary" --priority high --due tomorrow
-python MindTask_cli.py list --status 0 --priority 3 --detailed
+python MindTask_cli.py add "Write report" --description "Quarterly summary" --priority high --due "2026-05-15 18:00:00"
+python MindTask_cli.py list --status in_progress --priority 3 --detailed
 python MindTask_cli.py show 1
-python MindTask_cli.py update 1 --status doing
+python MindTask_cli.py update 1 --status suspended
 python MindTask_cli.py complete 1
 python MindTask_cli.py delete 1
 ```
@@ -24,8 +24,8 @@ python MindTask_cli.py delete 1
 Task options:
 
 - `--priority none|low|medium|high` or `0|1|2|3`
-- `--status open|doing|done` or `0|1|2`
-- `--due today|tomorrow|+N|YYYY-MM-DD|none`
+- `--status not_started|in_progress|suspended|completed` or `0|1|2|3`
+- `--due "YYYY-MM-DD HH:MM:SS"` or `none` when updating
 - `--limit N`
 - `--json`
 

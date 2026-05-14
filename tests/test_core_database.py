@@ -1,4 +1,5 @@
 from src.core import MindTaskDB
+import pytest
 
 
 def write_config(tmp_path):
@@ -37,10 +38,16 @@ def test_task_lifecycle(tmp_path):
     assert task["priority_text"] == "High"
 
     assert db.update_task(task_id, status=1)
-    assert db.get_task(task_id)["status_text"] == "Doing"
+    assert db.get_task(task_id)["status_text"] == "in_progress"
+
+    assert db.update_task(task_id, status=2)
+    assert db.get_task(task_id)["status_text"] == "suspended"
 
     assert db.complete_task(task_id)
-    assert db.get_task(task_id)["status_text"] == "Done"
+    completed = db.get_task(task_id)
+    assert completed["status"] == 3
+    assert completed["status_text"] == "completed"
+    assert completed["completed_at"] is not None
 
     assert db.delete_task(task_id)
     assert db.get_task(task_id) is None
@@ -57,7 +64,26 @@ def test_search_and_stats(tmp_path):
 
     stats = db.get_stats()
     assert stats["total_tasks"] == 2
+    assert stats["not_started_tasks"] == 2
+    assert stats["in_progress_tasks"] == 0
+    assert stats["suspended_tasks"] == 0
     assert stats["pending_tasks"] == 2
+
+
+def test_due_date_requires_standard_format(tmp_path):
+    db = MindTaskDB(config_path=write_config(tmp_path))
+
+    task_id = db.create_task("Due date task", due_date="2026-05-15 18:00:00")
+    assert db.get_task(task_id)["due_date"] == "2026-05-15 18:00:00"
+
+    assert db.update_task(task_id, due_date=None)
+    assert db.get_task(task_id)["due_date"] is None
+
+    with pytest.raises(ValueError):
+        db.create_task("Bad due date", due_date="tomorrow")
+
+    with pytest.raises(ValueError):
+        db.update_task(task_id, due_date="2026-05-15")
 
 
 def test_history_and_undo_create_update_delete(tmp_path):

@@ -32,7 +32,8 @@ def test_mcp_create_and_get_task(tmp_path):
 
     completed = tools.complete_task(task_id)
     assert completed["success"] is True
-    assert completed["data"]["status_text"] == "Done"
+    assert completed["data"]["status"] == 3
+    assert completed["data"]["status_text"] == "completed"
 
 
 def test_mcp_history_and_undo(tmp_path):

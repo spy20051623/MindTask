@@ -156,7 +156,7 @@ def get_mcp_tool_schemas() -> List[Dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "project_id": {"type": "integer"},
-                    "status": {"type": "integer", "enum": [0, 1, 2]},
+                    "status": {"type": "integer", "enum": [0, 1, 2, 3]},
                     "priority": {"type": "integer", "enum": [0, 1, 2, 3]},
                     "limit": {"type": "integer", "minimum": 1},
                 },
@@ -183,7 +183,10 @@ def get_mcp_tool_schemas() -> List[Dict[str, Any]]:
                     "description": {"type": "string"},
                     "project_id": {"type": "integer"},
                     "priority": {"type": "integer", "enum": [0, 1, 2, 3], "default": 0},
-                    "due_date": {"type": "string"},
+                    "due_date": {
+                        "type": "string",
+                        "description": "Due date in YYYY-MM-DD HH:MM:SS format.",
+                    },
                 },
                 "required": ["title"],
                 "additionalProperties": False,
@@ -200,8 +203,11 @@ def get_mcp_tool_schemas() -> List[Dict[str, Any]]:
                     "description": {"type": "string"},
                     "project_id": {"type": "integer"},
                     "priority": {"type": "integer", "enum": [0, 1, 2, 3]},
-                    "status": {"type": "integer", "enum": [0, 1, 2]},
-                    "due_date": {"type": ["string", "null"]},
+                    "status": {"type": "integer", "enum": [0, 1, 2, 3]},
+                    "due_date": {
+                        "type": ["string", "null"],
+                        "description": "Due date in YYYY-MM-DD HH:MM:SS format, or null to clear it.",
+                    },
                 },
                 "required": ["task_id"],
                 "additionalProperties": False,
@@ -209,7 +215,7 @@ def get_mcp_tool_schemas() -> List[Dict[str, Any]]:
         },
         {
             "name": "MindTask_complete_task",
-            "description": "Mark a task as done.",
+            "description": "Mark a task as completed.",
             "inputSchema": {
                 "type": "object",
                 "properties": {"task_id": {"type": "integer"}},

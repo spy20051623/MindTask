@@ -2,27 +2,22 @@
 
 from .core import MindTaskDB
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 __author__ = "MindTask Team"
 
 __all__ = [
     "MindTaskDB",
     "MindTaskCLI",
-    "MindTaskShell",
     "MindTaskMCPTools",
     "SimpleMindTaskMCPServer",
 ]
 
 
 def __getattr__(name):
-    if name in {"MindTaskCLI", "MindTaskShell"}:
-        from .cli import MindTaskCLI, MindTaskShell
+    if name == "MindTaskCLI":
+        from .cli import MindTaskCLI
 
-        values = {
-            "MindTaskCLI": MindTaskCLI,
-            "MindTaskShell": MindTaskShell,
-        }
-        return values[name]
+        return MindTaskCLI
 
     if name in {
         "MindTaskMCPTools",
