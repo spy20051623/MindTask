@@ -55,12 +55,14 @@ The current visual style is a restrained desktop tool layout with light panels, 
 The Settings page includes:
 
 - Theme selection: `system`, `light`, and `dark`
+- Language selection: `en` and `zh`
 - Active config file path
 - Database path
 - Database creation with sample projects and tasks
 
 The default theme is `system`, which follows the operating system color scheme when Qt can detect it.
 Theme selection is saved to the active config file under `ui.theme`.
+The default language is `en`. Language selection is saved to the active config file under `ui.language`.
 
 Changing the database path requires clicking `Apply Database`. MindTask first attempts to open and read the database at the new path. The active config and UI data source are updated only after that check succeeds.
 

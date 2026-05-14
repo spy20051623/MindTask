@@ -59,11 +59,14 @@ Fixed settings live in `config/mindtask.ini`:
 ```ini
 [database]
 path = data/mindtask.db
-schema = sql/mindtask_db_schema.sql
 
 [app]
 default_task_limit = 100
 default_search_limit = 20
+
+[ui]
+theme = system
+language = en
 ```
 
 Relative paths are resolved from the project root. Use `--config path/to/file.ini` to run with another config file. The database path is read only from the active config file.

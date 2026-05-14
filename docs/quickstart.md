@@ -7,7 +7,6 @@ MindTask reads fixed settings from `config/mindtask.ini`.
 ```ini
 [database]
 path = data/mindtask.db
-schema = sql/mindtask_db_schema.sql
 ```
 
 ## 2. Initialize The Database

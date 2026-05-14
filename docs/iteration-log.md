@@ -16,6 +16,12 @@ Update it immediately before creating a release commit, not after every local ch
 
 ## Entries
 
+## 1.1.1 - 2026-05-14
+
+- Summary: Add desktop UI localization and simplify user-facing configuration.
+- Changed: Added English and Chinese runtime translations for desktop UI text, buttons, dialogs, status and priority labels, history labels, and settings options; removed the language `system` option; localized theme choices; removed schema path from user config while keeping the schema file path internal.
+- Verified: Ran Python compile checks, CLI version check, UI localization smoke checks, dialog button localization checks, theme option localization checks, and config compatibility checks for language and schema cleanup.
+
 ## 1.1.0 - 2026-05-14
 
 - Summary: Add the first desktop UI iteration and project/database management workflows.

@@ -37,7 +37,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..core import MindTaskDB, get_config_path, normalize_due_date, save_database_path, save_ui_theme
+from ..core import MindTaskDB, get_config_path, normalize_due_date, save_database_path, save_ui_language, save_ui_theme
+from .i18n import LANGUAGE_LABELS, LANGUAGE_OPTIONS, Translator
 from .style import THEME_OPTIONS, THEME_SYSTEM, badge_colors_for_theme, build_app_style, colors_for_theme
 
 try:
@@ -46,6 +47,11 @@ except ModuleNotFoundError:
     qta = None
 
 
+THEME_TRANSLATION_KEYS = {
+    "system": "theme_system",
+    "dark": "theme_dark",
+    "light": "theme_light",
+}
 STATUS_LABELS = {
     0: "not_started",
     1: "in_progress",
@@ -53,11 +59,34 @@ STATUS_LABELS = {
     3: "completed",
 }
 STATUS_VALUES = {value: key for key, value in STATUS_LABELS.items()}
+STATUS_TRANSLATION_KEYS = {
+    0: "status_not_started",
+    1: "status_in_progress",
+    2: "status_suspended",
+    3: "status_completed",
+}
 PRIORITY_LABELS = {
     0: "None",
     1: "Low",
     2: "Medium",
     3: "High",
+}
+PRIORITY_TRANSLATION_KEYS = {
+    0: "priority_none",
+    1: "priority_low",
+    2: "priority_medium",
+    3: "priority_high",
+}
+HISTORY_ACTION_TRANSLATION_KEYS = {
+    "create": "action_create",
+    "delete": "action_delete",
+    "update": "action_update",
+}
+HISTORY_ENTITY_TRANSLATION_KEYS = {
+    "project": "entity_project",
+    "tag": "entity_tag",
+    "task": "entity_task",
+    "task_tag": "entity_task_tag",
 }
 
 
@@ -65,6 +94,27 @@ def required_label(text: str) -> QLabel:
     label = QLabel(f'{text} <span style="color:#dc2626;">*</span>')
     label.setTextFormat(Qt.TextFormat.RichText)
     return label
+
+
+def localize_dialog_buttons(buttons: QDialogButtonBox, translator: Translator) -> None:
+    ok_button = buttons.button(QDialogButtonBox.StandardButton.Ok)
+    cancel_button = buttons.button(QDialogButtonBox.StandardButton.Cancel)
+    if ok_button is not None:
+        ok_button.setText(translator.text("ok"))
+    if cancel_button is not None:
+        cancel_button.setText(translator.text("cancel"))
+
+
+def confirm_question(parent: QWidget, title: str, message: str, translator: Translator) -> bool:
+    dialog = QMessageBox(parent)
+    dialog.setIcon(QMessageBox.Icon.Question)
+    dialog.setWindowTitle(title)
+    dialog.setText(message)
+    yes_button = dialog.addButton(translator.text("yes"), QMessageBox.ButtonRole.YesRole)
+    no_button = dialog.addButton(translator.text("no"), QMessageBox.ButtonRole.NoRole)
+    dialog.setDefaultButton(no_button)
+    dialog.exec()
+    return dialog.clickedButton() == yes_button
 
 
 class MindTaskWindow(QMainWindow):
@@ -77,13 +127,19 @@ class MindTaskWindow(QMainWindow):
         self.tasks: List[Dict[str, Any]] = []
         self.selected_task_id: Optional[int] = None
         self.theme = self.db.config.ui_theme
+        self.language = self.db.config.ui_language
+        self.translator = Translator(self.language)
         self._apply_theme_to_app(self.theme)
 
         self.setWindowTitle("MindTask")
         self.resize(1180, 720)
 
         self._build_layout()
+        self.retranslate_ui()
         self.refresh_all()
+
+    def tr(self, key: str, **kwargs: object) -> str:
+        return self.translator.text(key, **kwargs)
 
     def _build_layout(self) -> None:
         root = QWidget()
@@ -110,13 +166,13 @@ class MindTaskWindow(QMainWindow):
         layout.setContentsMargins(12, 8, 12, 8)
         layout.setSpacing(8)
 
-        self.tasks_nav_button = QPushButton("Tasks")
+        self.tasks_nav_button = QPushButton()
         self.tasks_nav_button.setObjectName("NavButtonActive")
         self.tasks_nav_button.clicked.connect(lambda: self.switch_page(0))
-        self.projects_nav_button = QPushButton("Projects")
+        self.projects_nav_button = QPushButton()
         self.projects_nav_button.setObjectName("NavButton")
         self.projects_nav_button.clicked.connect(lambda: self.switch_page(1))
-        self.settings_nav_button = QPushButton("Settings")
+        self.settings_nav_button = QPushButton()
         self.settings_nav_button.setObjectName("NavButton")
         self.settings_nav_button.clicked.connect(lambda: self.switch_page(2))
 
@@ -142,7 +198,8 @@ class MindTaskWindow(QMainWindow):
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(10)
 
-        layout.addWidget(self._section_label("Projects"))
+        self.sidebar_projects_label = self._section_label("")
+        layout.addWidget(self.sidebar_projects_label)
         self.project_list = QListWidget()
         self.project_list.setObjectName("ProjectList")
         self.project_list.currentItemChanged.connect(lambda _current, _previous: self.refresh_tasks())
@@ -164,12 +221,11 @@ class MindTaskWindow(QMainWindow):
 
         self.search_edit = QLineEdit()
         self.search_edit.setObjectName("SearchInput")
-        self.search_edit.setPlaceholderText("Search tasks")
         self.search_edit.returnPressed.connect(self.refresh_tasks)
         actions_row.addWidget(self.search_edit, 1)
 
         self.add_button = self._icon_button(
-            "New task",
+            "",
             "fa6s.plus",
             "New",
             self.open_new_task_dialog,
@@ -177,7 +233,7 @@ class MindTaskWindow(QMainWindow):
         actions_row.addWidget(self.add_button)
 
         self.refresh_button = self._icon_button(
-            "Refresh",
+            "",
             "fa6s.arrows-rotate",
             "Ref",
             self.refresh_all,
@@ -185,7 +241,7 @@ class MindTaskWindow(QMainWindow):
         actions_row.addWidget(self.refresh_button)
 
         self.history_button = self._icon_button(
-            "History",
+            "",
             "fa6s.clock-rotate-left",
             "His",
             self.open_history_dialog,
@@ -197,8 +253,9 @@ class MindTaskWindow(QMainWindow):
         header.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         header_row = QHBoxLayout(header)
         header_row.setContentsMargins(0, 0, 0, 0)
-        header_row.addWidget(self._section_label("Tasks"))
-        self.task_count_label = QLabel("0 tasks")
+        self.tasks_title_label = self._section_label("")
+        header_row.addWidget(self.tasks_title_label)
+        self.task_count_label = QLabel()
         self.task_count_label.setObjectName("MutedLabel")
         header_row.addStretch()
         header_row.addWidget(self.task_count_label)
@@ -206,7 +263,7 @@ class MindTaskWindow(QMainWindow):
 
         self.task_table = QTableWidget(0, 6)
         self.task_table.setObjectName("TaskTable")
-        self.task_table.setHorizontalHeaderLabels(["ID", "Title", "Status", "Priority", "Project", "Due"])
+        self.task_table.setHorizontalHeaderLabels(["ID", "", "", "", "", ""])
         self.task_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.task_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.task_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -219,7 +276,7 @@ class MindTaskWindow(QMainWindow):
         self.task_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
         self.task_table.itemSelectionChanged.connect(self.load_selected_task)
 
-        self.empty_label = QLabel("No tasks")
+        self.empty_label = QLabel()
         self.empty_label.setObjectName("EmptyState")
         self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -280,7 +337,8 @@ class MindTaskWindow(QMainWindow):
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(10)
 
-        layout.addWidget(self._section_label("Task Detail"))
+        self.task_detail_title_label = self._section_label("")
+        layout.addWidget(self.task_detail_title_label)
 
         self.title_edit = QLineEdit()
         self.description_edit = QTextEdit()
@@ -290,33 +348,39 @@ class MindTaskWindow(QMainWindow):
         self.due_edit = QLineEdit()
         self.due_edit.setPlaceholderText("YYYY-MM-DD HH:MM:SS")
 
-        for status in STATUS_LABELS.values():
-            self.status_combo.addItem(status)
-        for priority, label in PRIORITY_LABELS.items():
-            self.priority_combo.addItem(label, priority)
+        for status, label in STATUS_LABELS.items():
+            self.status_combo.addItem(label, status)
+        for priority in PRIORITY_LABELS:
+            self.priority_combo.addItem("", priority)
 
         form = QFormLayout()
-        form.addRow(required_label("Title"), self.title_edit)
-        form.addRow("Description", self.description_edit)
-        form.addRow("Status", self.status_combo)
-        form.addRow("Priority", self.priority_combo)
-        form.addRow("Project", self.project_combo)
-        form.addRow("Due", self.due_edit)
+        self.title_label = required_label("")
+        self.description_label = QLabel()
+        self.status_label = QLabel()
+        self.priority_label = QLabel()
+        self.project_label = QLabel()
+        self.due_label = QLabel()
+        form.addRow(self.title_label, self.title_edit)
+        form.addRow(self.description_label, self.description_edit)
+        form.addRow(self.status_label, self.status_combo)
+        form.addRow(self.priority_label, self.priority_combo)
+        form.addRow(self.project_label, self.project_combo)
+        form.addRow(self.due_label, self.due_edit)
         layout.addLayout(form)
 
         button_row = QHBoxLayout()
-        save_button = QPushButton("Save")
-        save_button.setObjectName("PrimaryButton")
-        save_button.clicked.connect(self.save_selected_task)
-        complete_button = QPushButton("Complete")
-        complete_button.setObjectName("SecondaryButton")
-        complete_button.clicked.connect(self.complete_selected_task)
-        delete_button = QPushButton("Delete")
-        delete_button.setObjectName("DangerButton")
-        delete_button.clicked.connect(self.delete_selected_task)
-        button_row.addWidget(save_button)
-        button_row.addWidget(complete_button)
-        button_row.addWidget(delete_button)
+        self.save_button = QPushButton()
+        self.save_button.setObjectName("PrimaryButton")
+        self.save_button.clicked.connect(self.save_selected_task)
+        self.complete_button = QPushButton()
+        self.complete_button.setObjectName("SecondaryButton")
+        self.complete_button.clicked.connect(self.complete_selected_task)
+        self.task_delete_button = QPushButton()
+        self.task_delete_button.setObjectName("DangerButton")
+        self.task_delete_button.clicked.connect(self.delete_selected_task)
+        button_row.addWidget(self.save_button)
+        button_row.addWidget(self.complete_button)
+        button_row.addWidget(self.task_delete_button)
         layout.addLayout(button_row)
 
         layout.addStretch()
@@ -332,18 +396,19 @@ class MindTaskWindow(QMainWindow):
         header_row = QHBoxLayout(header)
         header_row.setContentsMargins(0, 0, 0, 0)
         header_row.setSpacing(8)
-        header_row.addWidget(self._section_label("Projects"))
-        self.project_count_label = QLabel("0 projects")
+        self.projects_title_label = self._section_label("")
+        header_row.addWidget(self.projects_title_label)
+        self.project_count_label = QLabel()
         self.project_count_label.setObjectName("MutedLabel")
         header_row.addStretch()
         header_row.addWidget(self.project_count_label)
 
-        self.new_project_button = QPushButton("New Project")
+        self.new_project_button = QPushButton()
         self.new_project_button.clicked.connect(self.open_new_project_dialog)
-        self.rename_project_button = QPushButton("Rename")
+        self.rename_project_button = QPushButton()
         self.rename_project_button.setObjectName("SecondaryButton")
         self.rename_project_button.clicked.connect(self.open_rename_project_dialog)
-        self.delete_project_button = QPushButton("Delete")
+        self.delete_project_button = QPushButton()
         self.delete_project_button.setObjectName("DangerButton")
         self.delete_project_button.clicked.connect(self.delete_selected_project)
         header_row.addWidget(self.new_project_button)
@@ -353,7 +418,7 @@ class MindTaskWindow(QMainWindow):
 
         self.projects_table = QTableWidget(0, 5)
         self.projects_table.setObjectName("TaskTable")
-        self.projects_table.setHorizontalHeaderLabels(["ID", "Name", "Tasks", "Active", "Completed"])
+        self.projects_table.setHorizontalHeaderLabels(["ID", "", "", "", ""])
         self.projects_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.projects_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.projects_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -373,7 +438,8 @@ class MindTaskWindow(QMainWindow):
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(16)
 
-        layout.addWidget(self._section_label("Settings"))
+        self.settings_title_label = self._section_label("")
+        layout.addWidget(self.settings_title_label)
 
         form_panel = QFrame()
         form_panel.setObjectName("DetailPanel")
@@ -384,31 +450,42 @@ class MindTaskWindow(QMainWindow):
         form = QFormLayout()
         self.theme_combo = QComboBox()
         for theme in THEME_OPTIONS:
-            self.theme_combo.addItem(theme)
-        self.theme_combo.setCurrentText(self.theme)
-        self.theme_combo.currentTextChanged.connect(self.apply_theme)
-        form.addRow("Theme", self.theme_combo)
+            self.theme_combo.addItem("", theme)
+        self._set_theme_combo(self.theme)
+        self.theme_combo.currentIndexChanged.connect(self.apply_theme_from_combo)
+        self.theme_label = QLabel()
+        form.addRow(self.theme_label, self.theme_combo)
+
+        self.language_combo = QComboBox()
+        for language in LANGUAGE_OPTIONS:
+            self.language_combo.addItem(LANGUAGE_LABELS[language], language)
+        self.language_combo.setCurrentIndex(list(LANGUAGE_OPTIONS).index(self.language))
+        self.language_combo.currentIndexChanged.connect(self.apply_language_from_combo)
+        self.language_label = QLabel()
+        form.addRow(self.language_label, self.language_combo)
 
         self.config_path_label = QLabel(self.config_path)
         self.config_path_label.setObjectName("MutedLabel")
-        form.addRow("Config file", self.config_path_label)
+        self.config_file_label = QLabel()
+        form.addRow(self.config_file_label, self.config_path_label)
 
         self.database_path_edit = QLineEdit(self.db.db_path)
-        form.addRow("Database path", self.database_path_edit)
+        self.database_path_label = QLabel()
+        form.addRow(self.database_path_label, self.database_path_edit)
         form_layout.addLayout(form)
 
         button_row = QHBoxLayout()
-        apply_db_button = QPushButton("Apply Database")
-        apply_db_button.clicked.connect(self.apply_database_path)
-        create_db_button = QPushButton("Create Database")
-        create_db_button.setObjectName("SecondaryButton")
-        create_db_button.clicked.connect(self.create_database_from_settings)
-        reload_db_button = QPushButton("Reload Current")
-        reload_db_button.setObjectName("SecondaryButton")
-        reload_db_button.clicked.connect(self.reload_current_database)
-        button_row.addWidget(apply_db_button)
-        button_row.addWidget(create_db_button)
-        button_row.addWidget(reload_db_button)
+        self.apply_db_button = QPushButton()
+        self.apply_db_button.clicked.connect(self.apply_database_path)
+        self.create_db_button = QPushButton()
+        self.create_db_button.setObjectName("SecondaryButton")
+        self.create_db_button.clicked.connect(self.create_database_from_settings)
+        self.reload_db_button = QPushButton()
+        self.reload_db_button.setObjectName("SecondaryButton")
+        self.reload_db_button.clicked.connect(self.reload_current_database)
+        button_row.addWidget(self.apply_db_button)
+        button_row.addWidget(self.create_db_button)
+        button_row.addWidget(self.reload_db_button)
         button_row.addStretch()
         form_layout.addLayout(button_row)
 
@@ -424,6 +501,84 @@ class MindTaskWindow(QMainWindow):
         label = QLabel(text)
         label.setObjectName("SectionLabel")
         return label
+
+    def retranslate_ui(self) -> None:
+        self.setWindowTitle("MindTask")
+        self.tasks_nav_button.setText(self.tr("tasks"))
+        self.projects_nav_button.setText(self.tr("projects"))
+        self.settings_nav_button.setText(self.tr("settings"))
+
+        self.search_edit.setPlaceholderText(self.tr("search_tasks"))
+        self.sidebar_projects_label.setText(self.tr("projects"))
+        self.tasks_title_label.setText(self.tr("tasks"))
+        self.add_button.setToolTip(self.tr("new_task"))
+        self.add_button.setAccessibleName(self.tr("new_task"))
+        self.refresh_button.setToolTip(self.tr("refresh"))
+        self.refresh_button.setAccessibleName(self.tr("refresh"))
+        self.history_button.setToolTip(self.tr("history"))
+        self.history_button.setAccessibleName(self.tr("history"))
+        self.task_table.setHorizontalHeaderLabels(
+            ["ID", self.tr("title"), self.tr("status"), self.tr("priority"), self.tr("project"), self.tr("due")]
+        )
+        self.empty_label.setText(self.tr("no_tasks"))
+        self.task_detail_title_label.setText(self.tr("task_detail"))
+        self.title_label.setText(f'{self.tr("title")} <span style="color:#dc2626;">*</span>')
+        self.description_label.setText(self.tr("description"))
+        self.status_label.setText(self.tr("status"))
+        self.priority_label.setText(self.tr("priority"))
+        self.project_label.setText(self.tr("project"))
+        self.due_label.setText(self.tr("due"))
+        self.save_button.setText(self.tr("save"))
+        self.complete_button.setText(self.tr("completed"))
+        self.task_delete_button.setText(self.tr("delete"))
+
+        self.projects_title_label.setText(self.tr("projects"))
+        self.new_project_button.setText(self.tr("new_project"))
+        self.rename_project_button.setText(self.tr("rename"))
+        self.delete_project_button.setText(self.tr("delete"))
+        self.projects_table.setHorizontalHeaderLabels(
+            ["ID", self.tr("name"), self.tr("tasks"), self.tr("active"), self.tr("completed")]
+        )
+
+        self.settings_title_label.setText(self.tr("settings"))
+        self.theme_label.setText(self.tr("theme"))
+        self.language_label.setText(self.tr("language"))
+        self.config_file_label.setText(self.tr("config_file"))
+        self.database_path_label.setText(self.tr("database_path"))
+        self.apply_db_button.setText(self.tr("apply_database"))
+        self.create_db_button.setText(self.tr("create_database"))
+        self.reload_db_button.setText(self.tr("reload_current"))
+        self._retranslate_choice_controls()
+        self._retranslate_theme_combo()
+
+    def _retranslate_choice_controls(self) -> None:
+        current_status = self.status_combo.currentData()
+        self.status_combo.blockSignals(True)
+        for index in range(self.status_combo.count()):
+            value = self.status_combo.itemData(index)
+            self.status_combo.setItemText(index, self.tr(STATUS_TRANSLATION_KEYS.get(value, "status_not_started")))
+        self.status_combo.blockSignals(False)
+        if current_status is not None:
+            self._set_status_combo(int(current_status))
+
+        current_priority = self.priority_combo.currentData()
+        self.priority_combo.blockSignals(True)
+        for index in range(self.priority_combo.count()):
+            value = self.priority_combo.itemData(index)
+            self.priority_combo.setItemText(index, self.tr(PRIORITY_TRANSLATION_KEYS.get(value, "priority_none")))
+        self.priority_combo.blockSignals(False)
+        if current_priority is not None:
+            self._set_priority_combo(int(current_priority))
+
+    def _retranslate_theme_combo(self) -> None:
+        current_theme = self.theme_combo.currentData()
+        self.theme_combo.blockSignals(True)
+        for index in range(self.theme_combo.count()):
+            value = self.theme_combo.itemData(index)
+            self.theme_combo.setItemText(index, self.tr(THEME_TRANSLATION_KEYS.get(value, "theme_system")))
+        self.theme_combo.blockSignals(False)
+        if isinstance(current_theme, str):
+            self._set_theme_combo(current_theme)
 
     def refresh_all(self) -> None:
         self.refresh_projects()
@@ -454,10 +609,12 @@ class MindTaskWindow(QMainWindow):
         self.settings_nav_button.style().polish(self.settings_nav_button)
 
     def refresh_projects(self) -> None:
+        selected_sidebar_project_id = self._current_project_id()
+        selected_detail_project_id = self.project_combo.currentData() if hasattr(self, "project_combo") else None
         self.project_list.blockSignals(True)
         self.project_list.clear()
 
-        all_item = QListWidgetItem("All Tasks")
+        all_item = QListWidgetItem(self.tr("all_tasks"))
         all_item.setData(Qt.ItemDataRole.UserRole, None)
         self._apply_list_item_color(all_item)
         self.project_list.addItem(all_item)
@@ -468,14 +625,16 @@ class MindTaskWindow(QMainWindow):
             self._apply_list_item_color(item)
             self.project_list.addItem(item)
 
+        self._select_sidebar_project(selected_sidebar_project_id)
         if self.project_list.currentRow() < 0:
             self.project_list.setCurrentRow(0)
         self.project_list.blockSignals(False)
 
         self.project_combo.clear()
-        self.project_combo.addItem("None", None)
+        self.project_combo.addItem(self.tr("none"), None)
         for project in self.db.get_projects():
             self.project_combo.addItem(project["name"], project["id"])
+        self._set_project_combo(selected_detail_project_id)
 
     def refresh_project_table(self) -> None:
         if not hasattr(self, "projects_table"):
@@ -501,7 +660,7 @@ class MindTaskWindow(QMainWindow):
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 self.projects_table.setItem(row, column, item)
         self.projects_table.resizeRowsToContents()
-        self.project_count_label.setText(f"{len(projects)} project(s)")
+        self.project_count_label.setText(self.tr("project_count", count=len(projects)))
         if selected_id is not None:
             self._select_project_management_row(selected_id)
         elif projects:
@@ -524,8 +683,8 @@ class MindTaskWindow(QMainWindow):
             values = [
                 task.get("id"),
                 task.get("title"),
-                task.get("status_text"),
-                task.get("priority_text"),
+                self.tr(STATUS_TRANSLATION_KEYS.get(task.get("status"), "status_not_started")),
+                self.tr(PRIORITY_TRANSLATION_KEYS.get(task.get("priority"), "priority_none")),
                 task.get("project_name") or "",
                 task.get("due_date") or "",
             ]
@@ -537,18 +696,20 @@ class MindTaskWindow(QMainWindow):
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 if column == 2:
                     status_colors = badge_colors_for_theme(self.theme, QApplication.instance())["status"]
-                    self._apply_badge_color(item, status_colors.get(str(value), status_colors["not_started"]))
+                    status_key = task.get("status_text") or STATUS_LABELS.get(task.get("status"), "not_started")
+                    self._apply_badge_color(item, status_colors.get(str(status_key), status_colors["not_started"]))
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 if column == 3:
                     priority_colors = badge_colors_for_theme(self.theme, QApplication.instance())["priority"]
-                    self._apply_badge_color(item, priority_colors.get(str(value), priority_colors["None"]))
+                    priority_key = task.get("priority_text") or PRIORITY_LABELS.get(task.get("priority"), "None")
+                    self._apply_badge_color(item, priority_colors.get(str(priority_key), priority_colors["None"]))
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 self.task_table.setItem(row, column, item)
 
         self.task_table.resizeRowsToContents()
-        self.task_count_label.setText(f"{len(tasks)} task(s)")
+        self.task_count_label.setText(self.tr("task_count", count=len(tasks)))
         self.task_stack.setCurrentWidget(self.task_table if tasks else self.empty_label)
-        self.statusBar().showMessage(f"{len(tasks)} task(s)")
+        self.statusBar().showMessage(self.tr("task_count", count=len(tasks)))
         if tasks:
             self.task_table.selectRow(0)
         else:
@@ -567,13 +728,13 @@ class MindTaskWindow(QMainWindow):
         self.selected_task_id = int(task_id)
         self.title_edit.setText(task.get("title") or "")
         self.description_edit.setPlainText(task.get("description") or "")
-        self.status_combo.setCurrentText(task.get("status_text") or STATUS_LABELS.get(task.get("status"), "not_started"))
-        self.priority_combo.setCurrentIndex(int(task.get("priority") or 0))
+        self._set_status_combo(int(task.get("status") or 0))
+        self._set_priority_combo(int(task.get("priority") or 0))
         self._set_project_combo(task.get("project_id"))
         self.due_edit.setText(task.get("due_date") or "")
 
     def open_new_task_dialog(self) -> None:
-        dialog = TaskDialog(self.db.get_projects(), parent=self)
+        dialog = TaskDialog(self.db.get_projects(), self.language, parent=self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
 
@@ -581,24 +742,24 @@ class MindTaskWindow(QMainWindow):
         try:
             task_id = self.db.create_task(**data)
         except ValueError as exc:
-            QMessageBox.warning(self, "Invalid Task", str(exc))
+            QMessageBox.warning(self, self.tr("invalid_task"), str(exc))
             return
 
         self.refresh_all()
         self._select_task(task_id)
 
     def open_new_project_dialog(self) -> None:
-        dialog = ProjectDialog(parent=self)
+        dialog = ProjectDialog(language=self.language, parent=self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         name = dialog.project_name()
         try:
             project_id = self.db.create_project(name)
         except ValueError as exc:
-            QMessageBox.warning(self, "Invalid Project", str(exc))
+            QMessageBox.warning(self, self.tr("invalid_project"), str(exc))
             return
         except Exception as exc:
-            QMessageBox.warning(self, "Project", f"Could not create project:\n{exc}")
+            QMessageBox.warning(self, self.tr("project"), self.tr("project_create_failed", error=exc))
             return
         self.refresh_all()
         self._select_project_management_row(project_id)
@@ -606,27 +767,27 @@ class MindTaskWindow(QMainWindow):
     def open_rename_project_dialog(self) -> None:
         project_id = self._selected_project_management_id()
         if project_id is None:
-            QMessageBox.information(self, "Project", "Select a project first.")
+            QMessageBox.information(self, self.tr("project"), self.tr("select_project_first"))
             return
         project = self.db.get_project(project_id)
         if not project:
-            QMessageBox.warning(self, "Project", "Project was not found.")
+            QMessageBox.warning(self, self.tr("project"), self.tr("project_not_found"))
             self.refresh_all()
             return
-        dialog = ProjectDialog(project["name"], parent=self)
-        dialog.setWindowTitle("Rename Project")
+        dialog = ProjectDialog(project["name"], self.language, parent=self)
+        dialog.setWindowTitle(self.tr("rename_project"))
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         try:
             changed = self.db.update_project(project_id, name=dialog.project_name())
         except ValueError as exc:
-            QMessageBox.warning(self, "Invalid Project", str(exc))
+            QMessageBox.warning(self, self.tr("invalid_project"), str(exc))
             return
         except Exception as exc:
-            QMessageBox.warning(self, "Project", f"Could not rename project:\n{exc}")
+            QMessageBox.warning(self, self.tr("project"), self.tr("project_rename_failed", error=exc))
             return
         if not changed:
-            QMessageBox.warning(self, "Project", "Project was not found.")
+            QMessageBox.warning(self, self.tr("project"), self.tr("project_not_found"))
             return
         self.refresh_all()
         self._select_project_management_row(project_id)
@@ -634,26 +795,30 @@ class MindTaskWindow(QMainWindow):
     def delete_selected_project(self) -> None:
         project_id = self._selected_project_management_id()
         if project_id is None:
-            QMessageBox.information(self, "Project", "Select a project first.")
+            QMessageBox.information(self, self.tr("project"), self.tr("select_project_first"))
             return
         project = self.db.get_project(project_id)
         if not project:
-            QMessageBox.warning(self, "Project", "Project was not found.")
+            QMessageBox.warning(self, self.tr("project"), self.tr("project_not_found"))
             self.refresh_all()
             return
-        reply = QMessageBox.question(self, "Delete Project", f"Delete empty project '{project['name']}'?")
-        if reply != QMessageBox.StandardButton.Yes:
+        if not confirm_question(
+            self,
+            self.tr("delete_project"),
+            self.tr("delete_project_confirm", name=project["name"]),
+            self.translator,
+        ):
             return
         try:
             deleted = self.db.delete_project(project_id)
         except ValueError as exc:
-            QMessageBox.warning(self, "Delete Project", str(exc))
+            QMessageBox.warning(self, self.tr("delete_project"), str(exc))
             return
         except Exception as exc:
-            QMessageBox.warning(self, "Project", f"Could not delete project:\n{exc}")
+            QMessageBox.warning(self, self.tr("project"), self.tr("project_delete_failed", error=exc))
             return
         if not deleted:
-            QMessageBox.warning(self, "Project", "Project was not found.")
+            QMessageBox.warning(self, self.tr("project"), self.tr("project_not_found"))
             return
         self.refresh_all()
 
@@ -665,20 +830,20 @@ class MindTaskWindow(QMainWindow):
         try:
             normalize_due_date(due_date)
         except ValueError as exc:
-            QMessageBox.warning(self, "Invalid Due Date", str(exc))
+            QMessageBox.warning(self, self.tr("invalid_due_date"), str(exc))
             return
 
         changed = self.db.update_task(
             self.selected_task_id,
             title=self.title_edit.text().strip(),
             description=self.description_edit.toPlainText().strip(),
-            status=STATUS_VALUES[self.status_combo.currentText()],
+            status=self.status_combo.currentData(),
             priority=self.priority_combo.currentData(),
             project_id=self.project_combo.currentData(),
             due_date=due_date,
         )
         if not changed:
-            QMessageBox.warning(self, "Save Failed", "Task was not found.")
+            QMessageBox.warning(self, self.tr("save_failed"), self.tr("task_not_found"))
             return
 
         self.refresh_all()
@@ -694,8 +859,7 @@ class MindTaskWindow(QMainWindow):
     def delete_selected_task(self) -> None:
         if self.selected_task_id is None:
             return
-        reply = QMessageBox.question(self, "Delete Task", "Delete the selected task?")
-        if reply != QMessageBox.StandardButton.Yes:
+        if not confirm_question(self, self.tr("delete_task"), self.tr("delete_task_confirm"), self.translator):
             return
         self.db.delete_task(self.selected_task_id)
         self.refresh_all()
@@ -703,12 +867,12 @@ class MindTaskWindow(QMainWindow):
     def undo_last_operation(self) -> None:
         history = self.db.undo_last_operation()
         if not history:
-            QMessageBox.information(self, "Undo", "No operation to undo.")
+            QMessageBox.information(self, self.tr("undo"), self.tr("no_operation_to_undo"))
             return
         self.refresh_all()
 
     def open_history_dialog(self) -> None:
-        dialog = HistoryDialog(self.db, self.theme, parent=self)
+        dialog = HistoryDialog(self.db, self.theme, self.language, parent=self)
         dialog.history_changed.connect(self.refresh_all)
         dialog.exec()
 
@@ -719,8 +883,26 @@ class MindTaskWindow(QMainWindow):
         try:
             save_ui_theme(theme, self.config_path)
         except Exception as exc:
-            QMessageBox.warning(self, "Theme", f"Could not save theme setting:\n{exc}")
+            QMessageBox.warning(self, self.tr("theme"), self.tr("could_not_save_theme", error=exc))
         self.refresh_tasks()
+
+    def apply_theme_from_combo(self) -> None:
+        theme = self.theme_combo.currentData()
+        if isinstance(theme, str):
+            self.apply_theme(theme)
+
+    def apply_language_from_combo(self) -> None:
+        language = self.language_combo.currentData()
+        if not isinstance(language, str):
+            return
+        self.language = language
+        self.translator.set_language(language)
+        try:
+            save_ui_language(language, self.config_path)
+        except Exception as exc:
+            QMessageBox.warning(self, self.tr("language"), self.tr("could_not_save_language", error=exc))
+        self.retranslate_ui()
+        self.refresh_all()
 
     def _apply_theme_to_app(self, theme: str) -> None:
         app = QApplication.instance()
@@ -731,42 +913,42 @@ class MindTaskWindow(QMainWindow):
     def apply_database_path(self) -> None:
         database_path = self.database_path_edit.text().strip()
         if not database_path:
-            QMessageBox.warning(self, "Database", "Database path is required.")
+            QMessageBox.warning(self, self.tr("database"), self.tr("database_path_required"))
             return
 
         try:
             tested_db = self._open_database_from_path(database_path)
             tested_db.get_tasks(limit=1)
         except Exception as exc:
-            QMessageBox.warning(self, "Database", f"Could not open database:\n{exc}")
+            QMessageBox.warning(self, self.tr("database"), self.tr("could_not_open_database", error=exc))
             return
 
         try:
             save_database_path(database_path, self.config_path)
             self.db = MindTaskDB(config_path=self.config_path)
             self.database_path_edit.setText(self.db.db_path)
-            self.settings_message.setText("Database updated.")
+            self.settings_message.setText(self.tr("database_updated"))
             self.refresh_all()
         except Exception as exc:
-            QMessageBox.warning(self, "Database", f"Database opened, but config update failed:\n{exc}")
+            QMessageBox.warning(self, self.tr("database"), self.tr("database_opened_config_failed", error=exc))
 
     def create_database_from_settings(self) -> None:
         database_path = self.database_path_edit.text().strip()
         if not database_path:
-            QMessageBox.warning(self, "Database", "Database path is required.")
+            QMessageBox.warning(self, self.tr("database"), self.tr("database_path_required"))
             return
 
         target = Path(database_path)
         if target.exists():
-            QMessageBox.warning(self, "Database", "Database file already exists. Choose a new path.")
+            QMessageBox.warning(self, self.tr("database"), self.tr("database_file_exists"))
             return
 
-        reply = QMessageBox.question(
+        if not confirm_question(
             self,
-            "Create Database",
-            "Create a new database at this path and switch to it?",
-        )
-        if reply != QMessageBox.StandardButton.Yes:
+            self.tr("create_database"),
+            self.tr("create_database_confirm"),
+            self.translator,
+        ):
             return
 
         try:
@@ -777,19 +959,19 @@ class MindTaskWindow(QMainWindow):
             save_database_path(str(target), self.config_path)
             self.db = MindTaskDB(config_path=self.config_path)
             self.database_path_edit.setText(self.db.db_path)
-            self.settings_message.setText("Database created with sample data.")
+            self.settings_message.setText(self.tr("database_created"))
             self.refresh_all()
         except Exception as exc:
-            QMessageBox.warning(self, "Database", f"Could not create database:\n{exc}")
+            QMessageBox.warning(self, self.tr("database"), self.tr("could_not_create_database", error=exc))
 
     def reload_current_database(self) -> None:
         try:
             self.db = MindTaskDB(config_path=self.config_path)
             self.database_path_edit.setText(self.db.db_path)
-            self.settings_message.setText("Database reloaded.")
+            self.settings_message.setText(self.tr("database_reloaded"))
             self.refresh_all()
         except Exception as exc:
-            QMessageBox.warning(self, "Database", f"Could not reload database:\n{exc}")
+            QMessageBox.warning(self, self.tr("database"), self.tr("could_not_reload_database", error=exc))
 
     def _open_database_from_path(self, database_path: str) -> MindTaskDB:
         config = self.db.config
@@ -797,7 +979,7 @@ class MindTaskWindow(QMainWindow):
             temp_config_path = fh.name
             fh.write("[database]\n")
             fh.write(f"path = {database_path}\n")
-            fh.write(f"schema = {config.schema_path}\n\n")
+            fh.write("\n")
             fh.write("[app]\n")
             fh.write(f"default_task_limit = {config.default_task_limit}\n")
             fh.write(f"default_search_limit = {config.default_search_limit}\n")
@@ -820,12 +1002,40 @@ class MindTaskWindow(QMainWindow):
         self.project_combo.setCurrentIndex(0)
         self.due_edit.clear()
 
+    def _set_status_combo(self, status: int) -> None:
+        for index in range(self.status_combo.count()):
+            if self.status_combo.itemData(index) == status:
+                self.status_combo.setCurrentIndex(index)
+                return
+        self.status_combo.setCurrentIndex(0)
+
+    def _set_priority_combo(self, priority: int) -> None:
+        for index in range(self.priority_combo.count()):
+            if self.priority_combo.itemData(index) == priority:
+                self.priority_combo.setCurrentIndex(index)
+                return
+        self.priority_combo.setCurrentIndex(0)
+
+    def _set_theme_combo(self, theme: str) -> None:
+        for index in range(self.theme_combo.count()):
+            if self.theme_combo.itemData(index) == theme:
+                self.theme_combo.setCurrentIndex(index)
+                return
+        self.theme_combo.setCurrentIndex(0)
+
     def _set_project_combo(self, project_id: Optional[int]) -> None:
         for index in range(self.project_combo.count()):
             if self.project_combo.itemData(index) == project_id:
                 self.project_combo.setCurrentIndex(index)
                 return
         self.project_combo.setCurrentIndex(0)
+
+    def _select_sidebar_project(self, project_id: Optional[int]) -> None:
+        for row in range(self.project_list.count()):
+            item = self.project_list.item(row)
+            if item.data(Qt.ItemDataRole.UserRole) == project_id:
+                self.project_list.setCurrentRow(row)
+                return
 
     def _selected_project_management_id(self) -> Optional[int]:
         if not hasattr(self, "projects_table"):
@@ -885,11 +1095,18 @@ class HistoryDialog(QDialog):
 
     history_changed = Signal()
 
-    def __init__(self, db: MindTaskDB, theme: str = THEME_SYSTEM, parent: Optional[QWidget] = None):
+    def __init__(
+        self,
+        db: MindTaskDB,
+        theme: str = THEME_SYSTEM,
+        language: str = "system",
+        parent: Optional[QWidget] = None,
+    ):
         super().__init__(parent)
         self.db = db
         self.theme = theme
-        self.setWindowTitle("History")
+        self.translator = Translator(language)
+        self.setWindowTitle(self.tr("history"))
         self.resize(760, 460)
         self.setStyleSheet(build_app_style(theme, QApplication.instance()))
 
@@ -897,13 +1114,15 @@ class HistoryDialog(QDialog):
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(10)
 
-        header = QLabel("Operation History")
+        header = QLabel(self.tr("operation_history"))
         header.setObjectName("SectionLabel")
         layout.addWidget(header)
 
         self.history_table = QTableWidget(0, 6)
         self.history_table.setObjectName("TaskTable")
-        self.history_table.setHorizontalHeaderLabels(["ID", "Created", "Action", "Entity", "State", "Undone"])
+        self.history_table.setHorizontalHeaderLabels(
+            ["ID", self.tr("created"), self.tr("action"), self.tr("entity"), self.tr("state"), self.tr("undone")]
+        )
         self.history_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.history_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.history_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -917,13 +1136,13 @@ class HistoryDialog(QDialog):
         layout.addWidget(self.history_table, 1)
 
         button_row = QHBoxLayout()
-        self.undo_latest_button = QPushButton("Undo Latest")
+        self.undo_latest_button = QPushButton(self.tr("undo_latest"))
         self.undo_latest_button.setObjectName("SecondaryButton")
         self.undo_latest_button.clicked.connect(self.undo_latest)
-        self.undo_to_selected_button = QPushButton("Undo To Selected")
+        self.undo_to_selected_button = QPushButton(self.tr("undo_to_selected"))
         self.undo_to_selected_button.setObjectName("DangerButton")
         self.undo_to_selected_button.clicked.connect(self.undo_to_selected)
-        close_button = QPushButton("Close")
+        close_button = QPushButton(self.tr("close"))
         close_button.clicked.connect(self.accept)
         button_row.addWidget(self.undo_latest_button)
         button_row.addWidget(self.undo_to_selected_button)
@@ -933,17 +1152,22 @@ class HistoryDialog(QDialog):
 
         self.refresh()
 
+    def tr(self, key: str, **kwargs: object) -> str:
+        return self.translator.text(key, **kwargs)
+
     def refresh(self) -> None:
         rows = self.db.get_history(limit=100, include_undone=True)
         self.history_table.setRowCount(len(rows))
         for row_index, history in enumerate(rows):
             entity_id = f"#{history['entity_id']}" if history.get("entity_id") is not None else ""
+            action = history["action"]
+            entity_type = history["entity_type"]
             values = [
                 history["id"],
                 history["created_at"],
-                history["action"],
-                f"{history['entity_type']}{entity_id}",
-                "undone" if history.get("undone_at") else "active",
+                self.tr(HISTORY_ACTION_TRANSLATION_KEYS.get(action, action)),
+                f"{self.tr(HISTORY_ENTITY_TRANSLATION_KEYS.get(entity_type, entity_type))}{entity_id}",
+                self.tr("undone") if history.get("undone_at") else self.tr("active"),
                 history.get("undone_at") or "",
             ]
             for column, value in enumerate(values):
@@ -968,7 +1192,7 @@ class HistoryDialog(QDialog):
     def undo_latest(self) -> None:
         history = self.db.undo_last_operation()
         if not history:
-            QMessageBox.information(self, "Undo", "No operation to undo.")
+            QMessageBox.information(self, self.tr("undo"), self.tr("no_operation_to_undo"))
             self.refresh()
             return
         self.history_changed.emit()
@@ -977,25 +1201,25 @@ class HistoryDialog(QDialog):
     def undo_to_selected(self) -> None:
         history_id = self._selected_history_id()
         if history_id is None:
-            QMessageBox.information(self, "History", "Select a history record first.")
+            QMessageBox.information(self, self.tr("history"), self.tr("select_history_first"))
             return
 
         selected = self._selected_history_row()
         if selected is not None and selected.get("undone_at"):
-            QMessageBox.information(self, "History", "Selected history record has already been undone.")
+            QMessageBox.information(self, self.tr("history"), self.tr("selected_history_undone"))
             return
 
-        reply = QMessageBox.question(
+        if not confirm_question(
             self,
-            "Undo To Selected",
-            "Undo all active operations from the latest down to the selected record?",
-        )
-        if reply != QMessageBox.StandardButton.Yes:
+            self.tr("undo_to_selected"),
+            self.tr("undo_to_selected_confirm"),
+            self.translator,
+        ):
             return
 
         undone = self.db.undo_operations_until(history_id)
         if not undone:
-            QMessageBox.information(self, "Undo", "No operation was undone.")
+            QMessageBox.information(self, self.tr("undo"), self.tr("no_operation_was_undone"))
             self.refresh()
             return
 
@@ -1021,9 +1245,10 @@ class HistoryDialog(QDialog):
 class ProjectDialog(QDialog):
     """Dialog for creating or renaming a project."""
 
-    def __init__(self, name: str = "", parent: Optional[QWidget] = None):
+    def __init__(self, name: str = "", language: str = "system", parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self.setWindowTitle("New Project")
+        self.translator = Translator(language)
+        self.setWindowTitle(self.tr("new_project"))
         theme = THEME_SYSTEM
         app = QApplication.instance()
         if app is not None:
@@ -1033,11 +1258,12 @@ class ProjectDialog(QDialog):
         self.name_edit = QLineEdit(name)
 
         form = QFormLayout(self)
-        form.addRow(required_label("Name"), self.name_edit)
+        form.addRow(required_label(self.tr("name")), self.name_edit)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
+        localize_dialog_buttons(buttons, self.translator)
         buttons.accepted.connect(self._accept_if_valid)
         buttons.rejected.connect(self.reject)
         form.addWidget(buttons)
@@ -1045,9 +1271,12 @@ class ProjectDialog(QDialog):
     def project_name(self) -> str:
         return self.name_edit.text().strip()
 
+    def tr(self, key: str, **kwargs: object) -> str:
+        return self.translator.text(key, **kwargs)
+
     def _accept_if_valid(self) -> None:
         if not self.project_name():
-            QMessageBox.warning(self, "Invalid Project", "Name is required.")
+            QMessageBox.warning(self, self.tr("invalid_project"), self.tr("name_required"))
             return
         self.accept()
 
@@ -1055,9 +1284,10 @@ class ProjectDialog(QDialog):
 class TaskDialog(QDialog):
     """Dialog for creating a task."""
 
-    def __init__(self, projects: List[Dict[str, Any]], parent: Optional[QWidget] = None):
+    def __init__(self, projects: List[Dict[str, Any]], language: str = "system", parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self.setWindowTitle("New Task")
+        self.translator = Translator(language)
+        self.setWindowTitle(self.tr("new_task"))
         theme = THEME_SYSTEM
         app = QApplication.instance()
         if app is not None:
@@ -1071,24 +1301,25 @@ class TaskDialog(QDialog):
         self.due_edit = QLineEdit()
         self.due_edit.setPlaceholderText("YYYY-MM-DD HH:MM:SS")
 
-        for priority, label in PRIORITY_LABELS.items():
-            self.priority_combo.addItem(label, priority)
+        for priority in PRIORITY_LABELS:
+            self.priority_combo.addItem(self.tr(PRIORITY_TRANSLATION_KEYS[priority]), priority)
         self.priority_combo.setCurrentIndex(0)
 
-        self.project_combo.addItem("None", None)
+        self.project_combo.addItem(self.tr("none"), None)
         for project in projects:
             self.project_combo.addItem(project["name"], project["id"])
 
         form = QFormLayout(self)
-        form.addRow(required_label("Title"), self.title_edit)
-        form.addRow("Description", self.description_edit)
-        form.addRow("Priority", self.priority_combo)
-        form.addRow("Project", self.project_combo)
-        form.addRow("Due", self.due_edit)
+        form.addRow(required_label(self.tr("title")), self.title_edit)
+        form.addRow(self.tr("description"), self.description_edit)
+        form.addRow(self.tr("priority"), self.priority_combo)
+        form.addRow(self.tr("project"), self.project_combo)
+        form.addRow(self.tr("due"), self.due_edit)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
+        localize_dialog_buttons(buttons, self.translator)
         buttons.accepted.connect(self._accept_if_valid)
         buttons.rejected.connect(self.reject)
         form.addWidget(buttons)
@@ -1103,13 +1334,16 @@ class TaskDialog(QDialog):
             "due_date": due_date,
         }
 
+    def tr(self, key: str, **kwargs: object) -> str:
+        return self.translator.text(key, **kwargs)
+
     def _accept_if_valid(self) -> None:
         if not self.title_edit.text().strip():
-            QMessageBox.warning(self, "Invalid Task", "Title is required.")
+            QMessageBox.warning(self, self.tr("invalid_task"), self.tr("title_required"))
             return
         try:
             normalize_due_date(self.due_edit.text().strip() or None)
         except ValueError as exc:
-            QMessageBox.warning(self, "Invalid Due Date", str(exc))
+            QMessageBox.warning(self, self.tr("invalid_due_date"), str(exc))
             return
         self.accept()

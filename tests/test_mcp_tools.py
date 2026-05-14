@@ -8,7 +8,6 @@ def write_config(tmp_path):
         f"""
 [database]
 path = {db_path}
-schema = sql/mindtask_db_schema.sql
 
 [app]
 default_task_limit = 100
