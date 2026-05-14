@@ -3,18 +3,17 @@
 from __future__ import annotations
 
 import tempfile
-import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QColor, QIcon
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QApplication,
     QAbstractItemView,
     QComboBox,
     QDialog,
-    QDialogButtonBox,
+    QFileDialog,
     QFormLayout,
     QFrame,
     QHBoxLayout,
@@ -38,83 +37,19 @@ from PySide6.QtWidgets import (
 )
 
 from ..core import MindTaskDB, get_config_path, normalize_due_date, save_database_path, save_ui_language, save_ui_theme
+from .constants import (
+    PRIORITY_LABELS,
+    PRIORITY_TRANSLATION_KEYS,
+    STATUS_LABELS,
+    STATUS_TRANSLATION_KEYS,
+    STATUS_VALUES,
+    THEME_TRANSLATION_KEYS,
+)
+from .dialog_helpers import confirm_question, required_label
+from .dialogs import HistoryDialog, ProjectDialog, TaskDialog
+from .icons import icon_button, set_action_button_icon
 from .i18n import LANGUAGE_LABELS, LANGUAGE_OPTIONS, Translator
 from .style import THEME_OPTIONS, THEME_SYSTEM, badge_colors_for_theme, build_app_style, colors_for_theme
-
-try:
-    import qtawesome as qta
-except ModuleNotFoundError:
-    qta = None
-
-
-THEME_TRANSLATION_KEYS = {
-    "system": "theme_system",
-    "dark": "theme_dark",
-    "light": "theme_light",
-}
-STATUS_LABELS = {
-    0: "not_started",
-    1: "in_progress",
-    2: "suspended",
-    3: "completed",
-}
-STATUS_VALUES = {value: key for key, value in STATUS_LABELS.items()}
-STATUS_TRANSLATION_KEYS = {
-    0: "status_not_started",
-    1: "status_in_progress",
-    2: "status_suspended",
-    3: "status_completed",
-}
-PRIORITY_LABELS = {
-    0: "None",
-    1: "Low",
-    2: "Medium",
-    3: "High",
-}
-PRIORITY_TRANSLATION_KEYS = {
-    0: "priority_none",
-    1: "priority_low",
-    2: "priority_medium",
-    3: "priority_high",
-}
-HISTORY_ACTION_TRANSLATION_KEYS = {
-    "create": "action_create",
-    "delete": "action_delete",
-    "update": "action_update",
-}
-HISTORY_ENTITY_TRANSLATION_KEYS = {
-    "project": "entity_project",
-    "tag": "entity_tag",
-    "task": "entity_task",
-    "task_tag": "entity_task_tag",
-}
-
-
-def required_label(text: str) -> QLabel:
-    label = QLabel(f'{text} <span style="color:#dc2626;">*</span>')
-    label.setTextFormat(Qt.TextFormat.RichText)
-    return label
-
-
-def localize_dialog_buttons(buttons: QDialogButtonBox, translator: Translator) -> None:
-    ok_button = buttons.button(QDialogButtonBox.StandardButton.Ok)
-    cancel_button = buttons.button(QDialogButtonBox.StandardButton.Cancel)
-    if ok_button is not None:
-        ok_button.setText(translator.text("ok"))
-    if cancel_button is not None:
-        cancel_button.setText(translator.text("cancel"))
-
-
-def confirm_question(parent: QWidget, title: str, message: str, translator: Translator) -> bool:
-    dialog = QMessageBox(parent)
-    dialog.setIcon(QMessageBox.Icon.Question)
-    dialog.setWindowTitle(title)
-    dialog.setText(message)
-    yes_button = dialog.addButton(translator.text("yes"), QMessageBox.ButtonRole.YesRole)
-    no_button = dialog.addButton(translator.text("no"), QMessageBox.ButtonRole.NoRole)
-    dialog.setDefaultButton(no_button)
-    dialog.exec()
-    return dialog.clickedButton() == yes_button
 
 
 class MindTaskWindow(QMainWindow):
@@ -287,41 +222,11 @@ class MindTaskWindow(QMainWindow):
 
         return panel
 
-    def _themed_icon(self, name: str) -> QIcon:
-        if qta is None:
-            return QIcon()
-        colors = colors_for_theme(self.theme, QApplication.instance())
-        old_local_appdata = os.environ.get("LOCALAPPDATA")
-        os.environ["LOCALAPPDATA"] = ""
-        try:
-            return qta.icon(name, color=colors["text"])
-        except Exception:
-            return QIcon()
-        finally:
-            if old_local_appdata is None:
-                os.environ.pop("LOCALAPPDATA", None)
-            else:
-                os.environ["LOCALAPPDATA"] = old_local_appdata
-
     def _icon_button(self, tooltip: str, icon_name: str, fallback_text: str, handler: Any) -> QPushButton:
-        button = QPushButton()
-        button.setObjectName("IconButton")
-        button.setIconSize(QSize(18, 18))
-        button.setFixedSize(34, 34)
-        button.setToolTip(tooltip)
-        button.setAccessibleName(tooltip)
-        self._set_action_button_icon(button, icon_name, fallback_text)
-        button.clicked.connect(handler)
-        return button
+        return icon_button(tooltip, icon_name, fallback_text, self.theme, handler)
 
     def _set_action_button_icon(self, button: QPushButton, icon_name: str, fallback_text: str) -> None:
-        icon = self._themed_icon(icon_name)
-        if icon.isNull():
-            button.setIcon(QIcon())
-            button.setText(fallback_text)
-            return
-        button.setText("")
-        button.setIcon(icon)
+        set_action_button_icon(button, icon_name, fallback_text, self.theme)
 
     def _refresh_action_icons(self) -> None:
         if not hasattr(self, "add_button"):
@@ -470,8 +375,16 @@ class MindTaskWindow(QMainWindow):
         form.addRow(self.config_file_label, self.config_path_label)
 
         self.database_path_edit = QLineEdit(self.db.db_path)
+        self.database_browse_button = QPushButton()
+        self.database_browse_button.clicked.connect(self.browse_database_path)
+        database_path_row = QWidget()
+        database_path_layout = QHBoxLayout(database_path_row)
+        database_path_layout.setContentsMargins(0, 0, 0, 0)
+        database_path_layout.setSpacing(8)
+        database_path_layout.addWidget(self.database_path_edit, 1)
+        database_path_layout.addWidget(self.database_browse_button)
         self.database_path_label = QLabel()
-        form.addRow(self.database_path_label, self.database_path_edit)
+        form.addRow(self.database_path_label, database_path_row)
         form_layout.addLayout(form)
 
         button_row = QHBoxLayout()
@@ -548,6 +461,7 @@ class MindTaskWindow(QMainWindow):
         self.apply_db_button.setText(self.tr("apply_database"))
         self.create_db_button.setText(self.tr("create_database"))
         self.reload_db_button.setText(self.tr("reload_current"))
+        self.database_browse_button.setText(self.tr("browse"))
         self._retranslate_choice_controls()
         self._retranslate_theme_combo()
 
@@ -932,6 +846,17 @@ class MindTaskWindow(QMainWindow):
         except Exception as exc:
             QMessageBox.warning(self, self.tr("database"), self.tr("database_opened_config_failed", error=exc))
 
+    def browse_database_path(self) -> None:
+        current = self.database_path_edit.text().strip() or self.db.db_path
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            self.tr("use_existing_database"),
+            str(Path(current).parent),
+            "SQLite (*.db *.sqlite *.sqlite3);;All files (*)",
+        )
+        if path:
+            self.database_path_edit.setText(path)
+
     def create_database_from_settings(self) -> None:
         database_path = self.database_path_edit.text().strip()
         if not database_path:
@@ -1088,262 +1013,3 @@ class MindTaskWindow(QMainWindow):
         colors = colors_for_theme(self.theme, QApplication.instance())
         item.setForeground(QColor(colors["text"]))
         item.setBackground(QColor(colors["input_bg"]))
-
-
-class HistoryDialog(QDialog):
-    """History viewer with scoped undo actions."""
-
-    history_changed = Signal()
-
-    def __init__(
-        self,
-        db: MindTaskDB,
-        theme: str = THEME_SYSTEM,
-        language: str = "system",
-        parent: Optional[QWidget] = None,
-    ):
-        super().__init__(parent)
-        self.db = db
-        self.theme = theme
-        self.translator = Translator(language)
-        self.setWindowTitle(self.tr("history"))
-        self.resize(760, 460)
-        self.setStyleSheet(build_app_style(theme, QApplication.instance()))
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 14, 14, 14)
-        layout.setSpacing(10)
-
-        header = QLabel(self.tr("operation_history"))
-        header.setObjectName("SectionLabel")
-        layout.addWidget(header)
-
-        self.history_table = QTableWidget(0, 6)
-        self.history_table.setObjectName("TaskTable")
-        self.history_table.setHorizontalHeaderLabels(
-            ["ID", self.tr("created"), self.tr("action"), self.tr("entity"), self.tr("state"), self.tr("undone")]
-        )
-        self.history_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.history_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.history_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.history_table.verticalHeader().setVisible(False)
-        self.history_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        self.history_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        self.history_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        self.history_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        self.history_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        self.history_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
-        layout.addWidget(self.history_table, 1)
-
-        button_row = QHBoxLayout()
-        self.undo_latest_button = QPushButton(self.tr("undo_latest"))
-        self.undo_latest_button.setObjectName("SecondaryButton")
-        self.undo_latest_button.clicked.connect(self.undo_latest)
-        self.undo_to_selected_button = QPushButton(self.tr("undo_to_selected"))
-        self.undo_to_selected_button.setObjectName("DangerButton")
-        self.undo_to_selected_button.clicked.connect(self.undo_to_selected)
-        close_button = QPushButton(self.tr("close"))
-        close_button.clicked.connect(self.accept)
-        button_row.addWidget(self.undo_latest_button)
-        button_row.addWidget(self.undo_to_selected_button)
-        button_row.addStretch()
-        button_row.addWidget(close_button)
-        layout.addLayout(button_row)
-
-        self.refresh()
-
-    def tr(self, key: str, **kwargs: object) -> str:
-        return self.translator.text(key, **kwargs)
-
-    def refresh(self) -> None:
-        rows = self.db.get_history(limit=100, include_undone=True)
-        self.history_table.setRowCount(len(rows))
-        for row_index, history in enumerate(rows):
-            entity_id = f"#{history['entity_id']}" if history.get("entity_id") is not None else ""
-            action = history["action"]
-            entity_type = history["entity_type"]
-            values = [
-                history["id"],
-                history["created_at"],
-                self.tr(HISTORY_ACTION_TRANSLATION_KEYS.get(action, action)),
-                f"{self.tr(HISTORY_ENTITY_TRANSLATION_KEYS.get(entity_type, entity_type))}{entity_id}",
-                self.tr("undone") if history.get("undone_at") else self.tr("active"),
-                history.get("undone_at") or "",
-            ]
-            for column, value in enumerate(values):
-                item = QTableWidgetItem(str(value))
-                colors = colors_for_theme(self.theme, QApplication.instance())
-                item.setForeground(QColor(colors["muted_text"] if history.get("undone_at") else colors["text"]))
-                item.setBackground(QColor(colors["panel_bg"] if row_index % 2 else colors["input_bg"]))
-                if column == 0:
-                    item.setData(Qt.ItemDataRole.UserRole, history["id"])
-                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                if column == 4:
-                    history_colors = badge_colors_for_theme(self.theme, QApplication.instance())["history"]
-                    badge = history_colors["undone" if history.get("undone_at") else "active"]
-                    item.setForeground(QColor(badge[0]))
-                    item.setBackground(QColor(badge[1]))
-                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                self.history_table.setItem(row_index, column, item)
-        self.history_table.resizeRowsToContents()
-        self.undo_latest_button.setEnabled(any(not row.get("undone_at") for row in rows))
-        self.undo_to_selected_button.setEnabled(bool(rows))
-
-    def undo_latest(self) -> None:
-        history = self.db.undo_last_operation()
-        if not history:
-            QMessageBox.information(self, self.tr("undo"), self.tr("no_operation_to_undo"))
-            self.refresh()
-            return
-        self.history_changed.emit()
-        self.refresh()
-
-    def undo_to_selected(self) -> None:
-        history_id = self._selected_history_id()
-        if history_id is None:
-            QMessageBox.information(self, self.tr("history"), self.tr("select_history_first"))
-            return
-
-        selected = self._selected_history_row()
-        if selected is not None and selected.get("undone_at"):
-            QMessageBox.information(self, self.tr("history"), self.tr("selected_history_undone"))
-            return
-
-        if not confirm_question(
-            self,
-            self.tr("undo_to_selected"),
-            self.tr("undo_to_selected_confirm"),
-            self.translator,
-        ):
-            return
-
-        undone = self.db.undo_operations_until(history_id)
-        if not undone:
-            QMessageBox.information(self, self.tr("undo"), self.tr("no_operation_was_undone"))
-            self.refresh()
-            return
-
-        self.history_changed.emit()
-        self.refresh()
-
-    def _selected_history_id(self) -> Optional[int]:
-        rows = self.history_table.selectionModel().selectedRows()
-        if not rows:
-            return None
-        return int(self.history_table.item(rows[0].row(), 0).data(Qt.ItemDataRole.UserRole))
-
-    def _selected_history_row(self) -> Optional[Dict[str, Any]]:
-        history_id = self._selected_history_id()
-        if history_id is None:
-            return None
-        for row in self.db.get_history(limit=100, include_undone=True):
-            if row["id"] == history_id:
-                return row
-        return None
-
-
-class ProjectDialog(QDialog):
-    """Dialog for creating or renaming a project."""
-
-    def __init__(self, name: str = "", language: str = "system", parent: Optional[QWidget] = None):
-        super().__init__(parent)
-        self.translator = Translator(language)
-        self.setWindowTitle(self.tr("new_project"))
-        theme = THEME_SYSTEM
-        app = QApplication.instance()
-        if app is not None:
-            theme = app.property("mindtask_theme") or THEME_SYSTEM
-        self.setStyleSheet(build_app_style(theme, app))
-
-        self.name_edit = QLineEdit(name)
-
-        form = QFormLayout(self)
-        form.addRow(required_label(self.tr("name")), self.name_edit)
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        localize_dialog_buttons(buttons, self.translator)
-        buttons.accepted.connect(self._accept_if_valid)
-        buttons.rejected.connect(self.reject)
-        form.addWidget(buttons)
-
-    def project_name(self) -> str:
-        return self.name_edit.text().strip()
-
-    def tr(self, key: str, **kwargs: object) -> str:
-        return self.translator.text(key, **kwargs)
-
-    def _accept_if_valid(self) -> None:
-        if not self.project_name():
-            QMessageBox.warning(self, self.tr("invalid_project"), self.tr("name_required"))
-            return
-        self.accept()
-
-
-class TaskDialog(QDialog):
-    """Dialog for creating a task."""
-
-    def __init__(self, projects: List[Dict[str, Any]], language: str = "system", parent: Optional[QWidget] = None):
-        super().__init__(parent)
-        self.translator = Translator(language)
-        self.setWindowTitle(self.tr("new_task"))
-        theme = THEME_SYSTEM
-        app = QApplication.instance()
-        if app is not None:
-            theme = app.property("mindtask_theme") or THEME_SYSTEM
-        self.setStyleSheet(build_app_style(theme, app))
-
-        self.title_edit = QLineEdit()
-        self.description_edit = QTextEdit()
-        self.priority_combo = QComboBox()
-        self.project_combo = QComboBox()
-        self.due_edit = QLineEdit()
-        self.due_edit.setPlaceholderText("YYYY-MM-DD HH:MM:SS")
-
-        for priority in PRIORITY_LABELS:
-            self.priority_combo.addItem(self.tr(PRIORITY_TRANSLATION_KEYS[priority]), priority)
-        self.priority_combo.setCurrentIndex(0)
-
-        self.project_combo.addItem(self.tr("none"), None)
-        for project in projects:
-            self.project_combo.addItem(project["name"], project["id"])
-
-        form = QFormLayout(self)
-        form.addRow(required_label(self.tr("title")), self.title_edit)
-        form.addRow(self.tr("description"), self.description_edit)
-        form.addRow(self.tr("priority"), self.priority_combo)
-        form.addRow(self.tr("project"), self.project_combo)
-        form.addRow(self.tr("due"), self.due_edit)
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        localize_dialog_buttons(buttons, self.translator)
-        buttons.accepted.connect(self._accept_if_valid)
-        buttons.rejected.connect(self.reject)
-        form.addWidget(buttons)
-
-    def task_data(self) -> Dict[str, Any]:
-        due_date = self.due_edit.text().strip() or None
-        return {
-            "title": self.title_edit.text().strip(),
-            "description": self.description_edit.toPlainText().strip(),
-            "priority": self.priority_combo.currentData(),
-            "project_id": self.project_combo.currentData(),
-            "due_date": due_date,
-        }
-
-    def tr(self, key: str, **kwargs: object) -> str:
-        return self.translator.text(key, **kwargs)
-
-    def _accept_if_valid(self) -> None:
-        if not self.title_edit.text().strip():
-            QMessageBox.warning(self, self.tr("invalid_task"), self.tr("title_required"))
-            return
-        try:
-            normalize_due_date(self.due_edit.text().strip() or None)
-        except ValueError as exc:
-            QMessageBox.warning(self, self.tr("invalid_due_date"), str(exc))
-            return
-        self.accept()

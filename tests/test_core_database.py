@@ -1,4 +1,5 @@
 from src.core import MindTaskDB
+from src.core.config import ensure_config_exists, load_config
 import pytest
 
 
@@ -73,6 +74,47 @@ def test_database_initialization_does_not_seed_projects(tmp_path):
     db = MindTaskDB(config_path=write_config(tmp_path))
 
     assert db.get_projects() == []
+
+
+def test_missing_config_is_created_from_template(tmp_path, monkeypatch):
+    template_path = tmp_path / "mindtask.ini.template"
+    config_path = tmp_path / "mindtask.ini"
+    db_path = tmp_path / "mindtask.db"
+    template_path.write_text(
+        f"""
+[database]
+path = {db_path}
+
+[app]
+default_task_limit = 42
+default_search_limit = 12
+
+[ui]
+theme = dark
+language = zh
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr("src.core.config.DEFAULT_CONFIG_TEMPLATE_PATH", template_path)
+
+    created_path = ensure_config_exists(str(config_path))
+    config = load_config(str(config_path))
+
+    assert created_path == config_path
+    assert config_path.exists()
+    assert config.default_task_limit == 42
+    assert config.default_search_limit == 12
+    assert config.ui_theme == "dark"
+    assert config.ui_language == "zh"
+
+
+def test_missing_config_requires_template(tmp_path, monkeypatch):
+    config_path = tmp_path / "mindtask.ini"
+    monkeypatch.setattr("src.core.config.DEFAULT_CONFIG_TEMPLATE_PATH", tmp_path / "missing.template")
+
+    with pytest.raises(FileNotFoundError):
+        ensure_config_exists(str(config_path))
 
 
 def test_sample_data_is_explicit(tmp_path):

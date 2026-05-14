@@ -54,7 +54,8 @@ python MindTask_ui.py
 
 ## Configuration
 
-Fixed settings live in `config/mindtask.ini`:
+Default settings live in `config/mindtask.ini.template`.
+MindTask creates `config/mindtask.ini` from that template the first time it runs:
 
 ```ini
 [database]
@@ -69,7 +70,7 @@ theme = system
 language = en
 ```
 
-Relative paths are resolved from the project root. Use `--config path/to/file.ini` to run with another config file. The database path is read only from the active config file.
+Relative paths are resolved from the project root. Use `--config path/to/file.ini` to run with another config file. If that config file does not exist, MindTask copies it from `config/mindtask.ini.template`. If the template is missing, startup fails with an error.
 
 ## Development
 

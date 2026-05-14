@@ -1,5 +1,5 @@
 [database]
-path = C:\Users\52524\Desktop\MindTask\data\mindtask.db
+path = data/mindtask.db
 
 [app]
 default_task_limit = 100
@@ -7,5 +7,5 @@ default_search_limit = 20
 
 [ui]
 theme = system
-language = zh
+language = en
 

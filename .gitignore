@@ -18,4 +18,5 @@ env/
 *.sqlite3
 *.db
 data/*.db
+config/mindtask.ini
 *.log

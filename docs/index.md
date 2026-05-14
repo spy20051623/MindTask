@@ -10,4 +10,4 @@ MindTask is developed with assistance from Codex.
 - [Desktop UI](desktop-ui.md): PySide6 desktop app frame and run instructions
 - [Iteration Log](iteration-log.md): version-level development history
 
-Core configuration lives in `config/mindtask.ini`. The database path is read from that file.
+Core configuration is created from `config/mindtask.ini.template` when `config/mindtask.ini` is missing. The database path is read from the active config file.

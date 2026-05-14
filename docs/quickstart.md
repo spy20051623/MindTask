@@ -2,7 +2,7 @@
 
 ## 1. Check Configuration
 
-MindTask reads fixed settings from `config/mindtask.ini`.
+MindTask creates `config/mindtask.ini` from `config/mindtask.ini.template` when the config file is missing.
 
 ```ini
 [database]

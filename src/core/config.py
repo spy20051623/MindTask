@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import configparser
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -11,6 +12,7 @@ from typing import Optional
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "mindtask.ini"
+DEFAULT_CONFIG_TEMPLATE_PATH = PROJECT_ROOT / "config" / "mindtask.ini.template"
 DEFAULT_SCHEMA_PATH = PROJECT_ROOT / "sql" / "mindtask_db_schema.sql"
 
 
@@ -32,11 +34,10 @@ def resolve_project_path(value: str) -> str:
 
 
 def load_config(config_path: Optional[str] = None) -> MindTaskConfig:
-    path = Path(config_path) if config_path else DEFAULT_CONFIG_PATH
+    path = ensure_config_exists(config_path)
     parser = configparser.ConfigParser()
 
-    if path.exists():
-        parser.read(path, encoding="utf-8-sig")
+    parser.read(path, encoding="utf-8-sig")
 
     database_path = parser.get("database", "path", fallback="data/mindtask.db")
     default_task_limit = parser.getint("app", "default_task_limit", fallback=100)
@@ -62,8 +63,30 @@ def get_config_path(config_path: Optional[str] = None) -> Path:
     return Path(config_path) if config_path else DEFAULT_CONFIG_PATH
 
 
-def save_database_path(database_path: str, config_path: Optional[str] = None) -> None:
+def get_config_template_path() -> Path:
+    return DEFAULT_CONFIG_TEMPLATE_PATH
+
+
+def config_exists(config_path: Optional[str] = None) -> bool:
+    return get_config_path(config_path).exists()
+
+
+def ensure_config_exists(config_path: Optional[str] = None) -> Path:
     path = get_config_path(config_path)
+    if path.exists():
+        return path
+
+    template_path = get_config_template_path()
+    if not template_path.exists():
+        raise FileNotFoundError(f"Config file is missing and template was not found: {template_path}")
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(template_path, path)
+    return path
+
+
+def save_database_path(database_path: str, config_path: Optional[str] = None) -> None:
+    path = ensure_config_exists(config_path)
     parser = configparser.ConfigParser()
     if path.exists():
         parser.read(path, encoding="utf-8-sig")
@@ -91,7 +114,7 @@ def save_ui_theme(theme: str, config_path: Optional[str] = None) -> None:
     if theme not in {"system", "light", "dark"}:
         raise ValueError("theme must be system, light, or dark")
 
-    path = get_config_path(config_path)
+    path = ensure_config_exists(config_path)
     parser = configparser.ConfigParser()
     if path.exists():
         parser.read(path, encoding="utf-8-sig")
@@ -119,7 +142,7 @@ def save_ui_language(language: str, config_path: Optional[str] = None) -> None:
     if language not in {"en", "zh"}:
         raise ValueError("language must be en or zh")
 
-    path = get_config_path(config_path)
+    path = ensure_config_exists(config_path)
     parser = configparser.ConfigParser()
     if path.exists():
         parser.read(path, encoding="utf-8-sig")

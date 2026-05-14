@@ -16,6 +16,12 @@ Update it immediately before creating a release commit, not after every local ch
 
 ## Entries
 
+## 1.1.2 - 2026-05-14
+
+- Summary: Prepare first-run configuration and clean up desktop UI module structure.
+- Changed: Removed the generated `config/mindtask.ini` from the repository, added `config/mindtask.ini.template` as the default configuration source, added the first-run welcome setup flow for language and database selection, added database path browsing in settings, and split desktop UI dialogs, constants, helpers, and icon handling into focused modules.
+- Verified: Ran Python compile checks, whitespace checks, and offscreen desktop UI smoke checks for main pages and dialogs.
+
 ## 1.1.1 - 2026-05-14
 
 - Summary: Add desktop UI localization and simplify user-facing configuration.
