@@ -29,6 +29,8 @@ Task options:
 - `--limit N`
 - `--json`
 
+Task lists are ordered by `id` ascending by default.
+
 ## Project Commands
 
 ```bash

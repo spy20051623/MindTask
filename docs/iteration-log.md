@@ -16,6 +16,12 @@ Update it immediately before creating a release commit, not after every local ch
 
 ## Entries
 
+## 1.1.0 - 2026-05-14
+
+- Summary: Add the first desktop UI iteration and project/database management workflows.
+- Changed: Added the PySide6 desktop UI, theme settings, task search and editing screens, operation history viewing and scoped undo from the UI, project management, QtAwesome action icons with fallback labels, configurable database switching, explicit sample-data database creation, and removed automatic default project seeding.
+- Verified: Ran Python compile checks, UI smoke checks for task/project/settings pages, and manual core validation scripts for project management, database creation, sample data, and default project initialization.
+
 ## 1.0.1 - 2026-05-14
 
 - Summary: Simplify MindTask's software-facing interfaces before the desktop UI iteration.

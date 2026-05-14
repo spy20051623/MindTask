@@ -140,22 +140,6 @@ LEFT JOIN task_tags tt ON t.id = tt.task_id
 LEFT JOIN tags tg ON tt.tag_id = tg.id
 GROUP BY t.id;
 
-INSERT INTO projects (name, description, color)
-SELECT 'Work', 'Work-related tasks', '#007BFF'
-WHERE NOT EXISTS (SELECT 1 FROM projects WHERE name = 'Work');
-
-INSERT INTO projects (name, description, color)
-SELECT 'Personal', 'Personal life tasks', '#28A745'
-WHERE NOT EXISTS (SELECT 1 FROM projects WHERE name = 'Personal');
-
-INSERT INTO projects (name, description, color)
-SELECT 'Learning', 'Learning and growth tasks', '#FFC107'
-WHERE NOT EXISTS (SELECT 1 FROM projects WHERE name = 'Learning');
-
-INSERT INTO projects (name, description, color)
-SELECT 'Health', 'Health and exercise tasks', '#DC3545'
-WHERE NOT EXISTS (SELECT 1 FROM projects WHERE name = 'Health');
-
 INSERT INTO tags (name, color)
 SELECT 'Urgent', '#DC3545'
 WHERE NOT EXISTS (SELECT 1 FROM tags WHERE name = 'Urgent');
