@@ -52,7 +52,7 @@ Tasks are ordered by `id` ascending by default.
 
 The UI calls the existing `MindTaskDB` core directly. It does not shell out to the CLI.
 
-The current visual style is a restrained desktop tool layout with light panels, visible section boundaries, colored status and priority cells, and an empty-state message for task lists.
+The current visual style is a restrained desktop tool layout with compact panels, clear page structure, colored status and priority cells, and an empty-state message for task lists.
 
 The Settings page includes:
 
@@ -87,7 +87,7 @@ Creating a database requires entering a path that does not already exist and cli
 
 Shortcuts are active while the MindTask window has focus.
 They can be changed from Settings. The saved values are stored in the config file under `[shortcuts]`.
-Shortcut rows show a modified state before changes are saved. Each row can be restored to its saved value or reset to the default value, and the Settings page also includes a reset-all-defaults action.
+Shortcut rows show a focused state while editing and a separate modified state before changes are saved. Each row can be restored to its saved value or reset to the default value, and the Settings page also includes a reset-all-defaults action. Mouse clicks only focus a shortcut field; shortcut recording uses keyboard input.
 
 - `Ctrl+1`: Open Tasks
 - `Ctrl+2`: Open Projects
@@ -108,9 +108,18 @@ Due dates use the same core format as the other software interfaces:
 YYYY-MM-DD HH:MM:SS
 ```
 
+## Windows Packaging
+
+The Windows build script creates a portable desktop package:
+
+```powershell
+.\scripts\build_windows.ps1
+```
+
+It installs UI packaging dependencies with the Tsinghua PyPI mirror by default, builds `dist\MindTask\MindTask.exe`, and creates a versioned zip file under `dist\`.
+
 ## Next UI Work
 
 - Add tag management screens
 - Add a board view grouped by task status
 - Add richer history inspection
-- Add packaging scripts for Windows desktop distribution

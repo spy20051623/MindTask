@@ -19,15 +19,18 @@ python MindTask_cli.py show 1
 python MindTask_cli.py update 1 --status suspended
 python MindTask_cli.py complete 1
 python MindTask_cli.py delete 1
+python MindTask_cli.py delete 1 --yes
 ```
 
 Task options:
 
-- `--priority none|low|medium|high` or `0|1|2|3`
+- `--priority none|low|medium|high` or `0|1|2|3` for create and update; list filtering accepts `0|1|2|3`
 - `--status not_started|in_progress|suspended|completed` or `0|1|2|3`
 - `--due "YYYY-MM-DD HH:MM:SS"` or `none` when updating
 - `--limit N`
 - `--json`
+
+Deleting a task asks for confirmation unless `--yes` is provided.
 
 Task lists are ordered by `id` ascending by default.
 

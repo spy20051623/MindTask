@@ -16,6 +16,12 @@ Update it immediately before creating a release commit, not after every local ch
 
 ## Entries
 
+## 1.2.0 - 2026-05-15
+
+- Summary: Prepare a leaner desktop-focused release with modular UI code, Windows packaging, and obsolete interface cleanup.
+- Changed: Split the large desktop main window into task, project, settings, shortcut settings, and shortcut editor modules; added a Windows portable packaging script that bundles the desktop app and uses the Tsinghua PyPI mirror for dependency installation; removed the old MCP-style JSON-RPC server, unused initialization scripts, and related documentation/tests; refreshed README and docs to reflect the desktop-first workflow, automatic database initialization, configurable shortcuts, and current packaging flow.
+- Verified: Ran Python compile checks, offscreen desktop UI smoke checks for the modularized settings and shortcut behavior, PowerShell syntax checks for the packaging script, and documentation searches for obsolete MCP and initialization-script references. Full pytest was not run because `pytest` is not installed in the current Python environment.
+
 ## 1.1.4 - 2026-05-15
 
 - Summary: Add configurable desktop shortcuts and reorganize settings for clearer daily use.
