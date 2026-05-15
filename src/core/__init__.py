@@ -2,6 +2,7 @@
 
 from .config import (
     MindTaskConfig,
+    DEFAULT_UI_SHORTCUTS,
     config_exists,
     ensure_config_exists,
     get_config_path,
@@ -10,12 +11,14 @@ from .config import (
     save_database_path,
     save_ui_due_day_end,
     save_ui_language,
+    save_ui_shortcuts,
     save_ui_theme,
 )
 from .database import MindTaskDB, example_usage, get_database_path, normalize_due_date
 
 __all__ = [
     "MindTaskConfig",
+    "DEFAULT_UI_SHORTCUTS",
     "MindTaskDB",
     "config_exists",
     "ensure_config_exists",
@@ -28,5 +31,6 @@ __all__ = [
     "save_database_path",
     "save_ui_due_day_end",
     "save_ui_language",
+    "save_ui_shortcuts",
     "save_ui_theme",
 ]

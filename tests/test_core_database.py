@@ -93,6 +93,9 @@ default_search_limit = 12
 theme = dark
 language = zh
 due_day_end = next_day_early_morning
+
+[shortcuts]
+delete_task = Ctrl+D
 """.strip(),
         encoding="utf-8",
     )
@@ -109,6 +112,8 @@ due_day_end = next_day_early_morning
     assert config.ui_theme == "dark"
     assert config.ui_language == "zh"
     assert config.ui_due_day_end == "next_day_early_morning"
+    assert config.ui_shortcuts["delete_task"] == "Ctrl+D"
+    assert config.ui_shortcuts["refresh"] == "F5"
 
 
 def test_missing_config_requires_template(tmp_path, monkeypatch):

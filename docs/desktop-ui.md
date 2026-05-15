@@ -56,17 +56,14 @@ The current visual style is a restrained desktop tool layout with light panels, 
 
 The Settings page includes:
 
-- Theme selection: `system`, `light`, and `dark`
-- Language selection: `en` and `zh`
-- Date-only due time: selected day `23:59:59` or next day `04:59:59`
-- Active config file path
-- Database path
-- Database creation with sample projects and tasks
+- General settings: theme selection, language selection, and latest work time for all-day due dates
+- Data settings: active config file path, database path, and database creation with sample projects and tasks
+- Keyboard shortcut settings
 
 The default theme is `system`, which follows the operating system color scheme when Qt can detect it.
 Theme selection is saved to the active config file under `ui.theme`.
 The default language is `en`. Language selection is saved to the active config file under `ui.language`.
-The default date-only due time is `same_day`, which stores selected-date-only due dates as `23:59:59` on that date. Users who treat late-night work as part of the previous day can choose `next_day_early_morning`, which stores them as `04:59:59` on the next day.
+The default latest work time for all-day due dates is `same_day`, which stores all-day task due dates as `23:59:59` on the selected date. Users who treat late-night work as part of the previous day can choose `next_day_early_morning`, which stores all-day due dates as `04:59:59` on the next day.
 
 Changing the database path requires clicking `Apply Database`. MindTask first attempts to open and read the database at the new path. The active config and UI data source are updated only after that check succeeds.
 
@@ -85,6 +82,25 @@ Creating a database requires entering a path that does not already exist and cli
 - Open operation history
 - Undo the latest operation from the history window
 - Undo operations from the latest down to a selected history record
+
+## Keyboard Shortcuts
+
+Shortcuts are active while the MindTask window has focus.
+They can be changed from Settings. The saved values are stored in the config file under `[shortcuts]`.
+Shortcut rows show a modified state before changes are saved. Each row can be restored to its saved value or reset to the default value, and the Settings page also includes a reset-all-defaults action.
+
+- `Ctrl+1`: Open Tasks
+- `Ctrl+2`: Open Projects
+- `Ctrl+3`: Open Settings
+- `Ctrl+N`: Create a task from the Tasks page
+- `Ctrl+F`: Focus task search from the Tasks page
+- `Esc`: Close task details first; if details are closed, clear active search
+- `F5`: Refresh data
+- `Ctrl+Z`: Undo the latest operation
+- `Ctrl+H`: Open operation history
+- `Ctrl+S`: Save the open task details
+- `Ctrl+Enter`: Complete the open task
+- `Ctrl+R`: Delete the open task, with confirmation
 
 Due dates use the same core format as the other software interfaces:
 

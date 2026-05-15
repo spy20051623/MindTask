@@ -5,15 +5,29 @@ from __future__ import annotations
 import configparser
 import os
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "mindtask.ini"
 DEFAULT_CONFIG_TEMPLATE_PATH = PROJECT_ROOT / "config" / "mindtask.ini.template"
 DEFAULT_SCHEMA_PATH = PROJECT_ROOT / "sql" / "mindtask_db_schema.sql"
+DEFAULT_UI_SHORTCUTS = {
+    "open_tasks": "Ctrl+1",
+    "open_projects": "Ctrl+2",
+    "open_settings": "Ctrl+3",
+    "new_task": "Ctrl+N",
+    "focus_search": "Ctrl+F",
+    "escape_tasks": "Esc",
+    "refresh": "F5",
+    "undo": "Ctrl+Z",
+    "history": "Ctrl+H",
+    "save_task": "Ctrl+S",
+    "complete_task": "Ctrl+Enter",
+    "delete_task": "Ctrl+R",
+}
 
 
 @dataclass(frozen=True)
@@ -25,6 +39,7 @@ class MindTaskConfig:
     ui_theme: str = "system"
     ui_language: str = "en"
     ui_due_day_end: str = "same_day"
+    ui_shortcuts: Dict[str, str] = field(default_factory=lambda: dict(DEFAULT_UI_SHORTCUTS))
 
 
 def resolve_project_path(value: str) -> str:
@@ -52,6 +67,10 @@ def load_config(config_path: Optional[str] = None) -> MindTaskConfig:
     ui_due_day_end = parser.get("ui", "due_day_end", fallback="same_day")
     if ui_due_day_end not in {"same_day", "next_day_early_morning"}:
         ui_due_day_end = "same_day"
+    ui_shortcuts = {
+        action: parser.get("shortcuts", action, fallback=default_sequence).strip()
+        for action, default_sequence in DEFAULT_UI_SHORTCUTS.items()
+    }
 
     return MindTaskConfig(
         database_path=resolve_project_path(database_path),
@@ -61,6 +80,7 @@ def load_config(config_path: Optional[str] = None) -> MindTaskConfig:
         ui_theme=ui_theme,
         ui_language=ui_language,
         ui_due_day_end=ui_due_day_end,
+        ui_shortcuts=ui_shortcuts,
     )
 
 
@@ -76,6 +96,8 @@ def _read_writable_config(config_path: Optional[str] = None) -> tuple[Path, conf
         parser["app"] = {}
     if "ui" not in parser:
         parser["ui"] = {}
+    if "shortcuts" not in parser:
+        parser["shortcuts"] = {}
 
     parser["database"].setdefault("path", "data/mindtask.db")
     parser["database"].pop("schema", None)
@@ -84,6 +106,8 @@ def _read_writable_config(config_path: Optional[str] = None) -> tuple[Path, conf
     parser["ui"].setdefault("theme", "system")
     parser["ui"].setdefault("language", "en")
     parser["ui"].setdefault("due_day_end", "same_day")
+    for action, sequence in DEFAULT_UI_SHORTCUTS.items():
+        parser["shortcuts"].setdefault(action, sequence)
     return path, parser
 
 
@@ -149,4 +173,11 @@ def save_ui_due_day_end(value: str, config_path: Optional[str] = None) -> None:
 
     path, parser = _read_writable_config(config_path)
     parser["ui"]["due_day_end"] = value
+    _write_config(path, parser)
+
+
+def save_ui_shortcuts(shortcuts: Dict[str, str], config_path: Optional[str] = None) -> None:
+    path, parser = _read_writable_config(config_path)
+    for action in DEFAULT_UI_SHORTCUTS:
+        parser["shortcuts"][action] = shortcuts.get(action, "").strip()
     _write_config(path, parser)

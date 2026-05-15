@@ -6,8 +6,8 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt
-from PySide6.QtGui import QAction, QColor
+from PySide6.QtCore import QEasingCurve, QEvent, QPropertyAnimation, QTimer, Qt, Signal
+from PySide6.QtGui import QAction, QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QAbstractItemView,
@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSplitter,
     QStackedWidget,
@@ -37,12 +38,14 @@ from PySide6.QtWidgets import (
 )
 
 from ..core import (
+    DEFAULT_UI_SHORTCUTS,
     MindTaskDB,
     get_config_path,
     normalize_due_date,
     save_database_path,
     save_ui_due_day_end,
     save_ui_language,
+    save_ui_shortcuts,
     save_ui_theme,
 )
 from .constants import (
@@ -66,6 +69,88 @@ DETAIL_PANEL_MIN_WIDTH = 420
 DETAIL_PANEL_WIDTH = 480
 SIDEBAR_WIDTH = 220
 
+SHORTCUT_ACTIONS = (
+    ("open_tasks", "shortcut_open_tasks"),
+    ("open_projects", "shortcut_open_projects"),
+    ("open_settings", "shortcut_open_settings"),
+    ("new_task", "shortcut_new_task_label"),
+    ("focus_search", "shortcut_focus_search"),
+    ("escape_tasks", "shortcut_escape_tasks"),
+    ("refresh", "shortcut_refresh"),
+    ("undo", "shortcut_undo"),
+    ("history", "shortcut_history"),
+    ("save_task", "shortcut_save_task"),
+    ("complete_task", "shortcut_complete_task"),
+    ("delete_task", "shortcut_delete_task"),
+)
+
+
+class ShortcutKeySequenceEdit(QLineEdit):
+    keySequenceChanged = Signal(QKeySequence)
+    focus_changed = Signal(bool)
+
+    def __init__(self, sequence: QKeySequence):
+        super().__init__()
+        self._sequence = QKeySequence()
+        self.setReadOnly(True)
+        self.setKeySequence(sequence)
+
+    def keySequence(self) -> QKeySequence:
+        return self._sequence
+
+    def setKeySequence(self, sequence: QKeySequence) -> None:
+        self._sequence = sequence
+        self.setText(sequence.toString(QKeySequence.SequenceFormat.NativeText))
+        self.keySequenceChanged.emit(sequence)
+
+    def focusInEvent(self, event: Any) -> None:
+        super().focusInEvent(event)
+        self.focus_changed.emit(True)
+
+    def focusOutEvent(self, event: Any) -> None:
+        super().focusOutEvent(event)
+        self.focus_changed.emit(False)
+
+    def keyPressEvent(self, event: Any) -> None:
+        key = event.key()
+        if key in {
+            Qt.Key.Key_Control,
+            Qt.Key.Key_Shift,
+            Qt.Key.Key_Alt,
+            Qt.Key.Key_Meta,
+            Qt.Key.Key_AltGr,
+        }:
+            event.accept()
+            return
+        if key == Qt.Key.Key_Backspace and event.modifiers() == Qt.KeyboardModifier.NoModifier:
+            self.setKeySequence(QKeySequence())
+            event.accept()
+            return
+        modifiers = event.modifiers() & (
+            Qt.KeyboardModifier.ControlModifier
+            | Qt.KeyboardModifier.ShiftModifier
+            | Qt.KeyboardModifier.AltModifier
+            | Qt.KeyboardModifier.MetaModifier
+        )
+        self.setKeySequence(QKeySequence(modifiers.value | key))
+        event.accept()
+
+    def mousePressEvent(self, event: Any) -> None:
+        self._accept_mouse_event(event)
+
+    def mouseMoveEvent(self, event: Any) -> None:
+        event.accept()
+
+    def mouseReleaseEvent(self, event: Any) -> None:
+        event.accept()
+
+    def mouseDoubleClickEvent(self, event: Any) -> None:
+        self._accept_mouse_event(event)
+
+    def _accept_mouse_event(self, event: QEvent) -> None:
+        self.setFocus(Qt.FocusReason.MouseFocusReason)
+        event.accept()
+
 
 class MindTaskWindow(QMainWindow):
     """Task-focused desktop shell around the existing MindTask core."""
@@ -79,6 +164,7 @@ class MindTaskWindow(QMainWindow):
         self.theme = self.db.config.ui_theme
         self.language = self.db.config.ui_language
         self.due_day_end = self.db.config.ui_due_day_end
+        self.shortcut_sequences = dict(self.db.config.ui_shortcuts)
         self.task_sort_column = 0
         self.task_sort_order = Qt.SortOrder.AscendingOrder
         self.project_sort_column = 0
@@ -91,6 +177,7 @@ class MindTaskWindow(QMainWindow):
         self.resize(1180, 720)
 
         self._build_layout()
+        self._build_shortcuts()
         self.retranslate_ui()
         self.refresh_all()
 
@@ -114,6 +201,36 @@ class MindTaskWindow(QMainWindow):
         self.setCentralWidget(root)
 
         self.setStatusBar(QStatusBar())
+
+    def _build_shortcuts(self) -> None:
+        handlers = {
+            "open_tasks": lambda: self.switch_page(0),
+            "open_projects": lambda: self.switch_page(1),
+            "open_settings": lambda: self.switch_page(2),
+            "new_task": self.shortcut_new_task,
+            "focus_search": self.shortcut_focus_search,
+            "escape_tasks": self.shortcut_escape_tasks,
+            "refresh": self.refresh_all,
+            "undo": self.undo_last_operation,
+            "history": self.open_history_dialog,
+            "save_task": self.shortcut_save_task,
+            "complete_task": self.shortcut_complete_task,
+            "delete_task": self.shortcut_delete_task,
+        }
+        if hasattr(self, "shortcuts"):
+            for shortcut in self.shortcuts:
+                shortcut.setEnabled(False)
+                shortcut.deleteLater()
+        self.shortcuts: List[QShortcut] = []
+        for action, handler in handlers.items():
+            sequence = self.shortcut_sequences.get(action, "")
+            key_sequence = QKeySequence(sequence)
+            if key_sequence.isEmpty():
+                continue
+            shortcut = QShortcut(QKeySequence(sequence), self)
+            shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+            shortcut.activated.connect(handler)
+            self.shortcuts.append(shortcut)
 
     def _build_bottom_navigation(self) -> QWidget:
         panel = QFrame()
@@ -388,27 +505,49 @@ class MindTaskWindow(QMainWindow):
 
     def _build_settings_page(self) -> QWidget:
         page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(16)
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        page_layout.setSpacing(0)
 
-        self.settings_title_label = self._section_label("")
-        layout.addWidget(self.settings_title_label)
+        settings_body = QWidget()
+        settings_body_layout = QHBoxLayout(settings_body)
+        settings_body_layout.setContentsMargins(0, 0, 0, 0)
+        settings_body_layout.setSpacing(0)
+        settings_sidebar = QFrame()
+        settings_sidebar.setObjectName("Sidebar")
+        settings_sidebar.setMinimumWidth(SIDEBAR_WIDTH)
+        settings_sidebar.setMaximumWidth(SIDEBAR_WIDTH)
+        settings_nav = QVBoxLayout(settings_sidebar)
+        settings_nav.setContentsMargins(14, 14, 14, 14)
+        settings_nav.setSpacing(10)
+        self.settings_sections_label = self._section_label("")
+        settings_nav.addWidget(self.settings_sections_label)
+        self.settings_section_list = QListWidget()
+        self.settings_section_list.setObjectName("ProjectList")
+        self.settings_section_list.currentRowChanged.connect(self.switch_settings_section)
+        settings_nav.addWidget(self.settings_section_list, 1)
 
-        form_panel = QFrame()
-        form_panel.setObjectName("DetailPanel")
-        form_layout = QVBoxLayout(form_panel)
-        form_layout.setContentsMargins(16, 16, 16, 16)
-        form_layout.setSpacing(12)
+        self.settings_stack = QStackedWidget()
+        settings_body_layout.addWidget(settings_sidebar)
+        settings_body_layout.addWidget(self.settings_stack, 1)
+        page_layout.addWidget(settings_body, 1)
 
-        form = QFormLayout()
+        general_panel = QFrame()
+        general_panel.setObjectName("DetailPanel")
+        general_panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        general_layout = QVBoxLayout(general_panel)
+        general_layout.setContentsMargins(16, 16, 16, 16)
+        general_layout.setSpacing(12)
+        general_form = QFormLayout()
+        self.general_settings_title_label = self._section_label("")
+        general_layout.addWidget(self.general_settings_title_label)
         self.theme_combo = QComboBox()
         for theme in THEME_OPTIONS:
             self.theme_combo.addItem("", theme)
         self._set_theme_combo(self.theme)
         self.theme_combo.currentIndexChanged.connect(self.apply_theme_from_combo)
         self.theme_label = QLabel()
-        form.addRow(self.theme_label, self.theme_combo)
+        general_form.addRow(self.theme_label, self.theme_combo)
 
         self.language_combo = QComboBox()
         for language in LANGUAGE_OPTIONS:
@@ -416,7 +555,7 @@ class MindTaskWindow(QMainWindow):
         self.language_combo.setCurrentIndex(list(LANGUAGE_OPTIONS).index(self.language))
         self.language_combo.currentIndexChanged.connect(self.apply_language_from_combo)
         self.language_label = QLabel()
-        form.addRow(self.language_label, self.language_combo)
+        general_form.addRow(self.language_label, self.language_combo)
 
         self.due_day_end_combo = QComboBox()
         for option in DUE_DAY_END_OPTIONS:
@@ -424,25 +563,102 @@ class MindTaskWindow(QMainWindow):
         self._set_due_day_end_combo(self.due_day_end)
         self.due_day_end_combo.currentIndexChanged.connect(self.apply_due_day_end_from_combo)
         self.due_day_end_label = QLabel()
-        form.addRow(self.due_day_end_label, self.due_day_end_combo)
+        general_form.addRow(self.due_day_end_label, self.due_day_end_combo)
+        general_layout.addLayout(general_form)
+        general_layout.addStretch()
 
+        shortcut_panel = QFrame()
+        shortcut_panel.setObjectName("DetailPanel")
+        shortcut_panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        shortcut_layout = QVBoxLayout(shortcut_panel)
+        shortcut_layout.setContentsMargins(16, 16, 16, 16)
+        shortcut_layout.setSpacing(12)
+        shortcut_form = QFormLayout()
+        self.shortcuts_title_label = self._section_label("")
+        shortcut_layout.addWidget(self.shortcuts_title_label)
+        self.shortcut_labels: Dict[str, QLabel] = {}
+        self.shortcut_edits: Dict[str, ShortcutKeySequenceEdit] = {}
+        self.shortcut_rows: Dict[str, QFrame] = {}
+        self.shortcut_active_rows: set[str] = set()
+        self.shortcut_cancel_buttons: Dict[str, QPushButton] = {}
+        self.shortcut_default_buttons: Dict[str, QPushButton] = {}
+        for action, _translation_key in SHORTCUT_ACTIONS:
+            label = QLabel()
+            row = QFrame()
+            row.setObjectName("ShortcutRow")
+            row.setProperty("shortcutModified", False)
+            row.setProperty("shortcutActive", False)
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(8, 6, 8, 6)
+            row_layout.setSpacing(8)
+            edit = ShortcutKeySequenceEdit(QKeySequence(self.shortcut_sequences.get(action, "")))
+            edit.keySequenceChanged.connect(lambda _sequence, current_action=action: self.update_shortcut_row_state(current_action))
+            edit.editingFinished.connect(lambda current_action=action: self.update_shortcut_row_state(current_action))
+            edit.focus_changed.connect(lambda has_focus, current_action=action: self.update_shortcut_focus_state(current_action, has_focus))
+            cancel_button = QPushButton()
+            cancel_button.setObjectName("SecondaryButton")
+            cancel_button.clicked.connect(lambda _checked=False, current_action=action: self.cancel_shortcut_change(current_action))
+            default_button = QPushButton()
+            default_button.setObjectName("SecondaryButton")
+            default_button.clicked.connect(lambda _checked=False, current_action=action: self.reset_shortcut_to_default(current_action))
+            row_layout.addWidget(edit, 1)
+            row_layout.addWidget(cancel_button)
+            row_layout.addWidget(default_button)
+            self.shortcut_labels[action] = label
+            self.shortcut_edits[action] = edit
+            self.shortcut_rows[action] = row
+            self.shortcut_cancel_buttons[action] = cancel_button
+            self.shortcut_default_buttons[action] = default_button
+            shortcut_form.addRow(label, row)
+        shortcut_layout.addLayout(shortcut_form)
+
+        shortcut_button_row = QWidget()
+        shortcut_button_row.setObjectName("TransparentRow")
+        shortcut_button_layout = QHBoxLayout(shortcut_button_row)
+        shortcut_button_layout.setContentsMargins(0, 0, 0, 0)
+        shortcut_button_layout.setSpacing(8)
+        self.apply_shortcuts_button = QPushButton()
+        self.apply_shortcuts_button.clicked.connect(self.apply_shortcuts_from_settings)
+        self.reset_shortcuts_button = QPushButton()
+        self.reset_shortcuts_button.setObjectName("SecondaryButton")
+        self.reset_shortcuts_button.clicked.connect(self.reset_all_shortcuts_to_defaults)
+        shortcut_button_layout.addWidget(self.apply_shortcuts_button)
+        shortcut_button_layout.addWidget(self.reset_shortcuts_button)
+        self.shortcuts_message = QLabel("")
+        self.shortcuts_message.setObjectName("MutedLabel")
+        self.shortcuts_message.hide()
+        shortcut_button_layout.addWidget(self.shortcuts_message)
+        shortcut_button_layout.addStretch()
+        shortcut_layout.addWidget(shortcut_button_row)
+        shortcut_layout.addStretch()
+
+        database_panel = QFrame()
+        database_panel.setObjectName("DetailPanel")
+        database_panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        database_layout = QVBoxLayout(database_panel)
+        database_layout.setContentsMargins(16, 16, 16, 16)
+        database_layout.setSpacing(12)
+        database_form = QFormLayout()
+        self.data_settings_title_label = self._section_label("")
+        database_layout.addWidget(self.data_settings_title_label)
         self.config_path_label = QLabel(self.config_path)
         self.config_path_label.setObjectName("MutedLabel")
         self.config_file_label = QLabel()
-        form.addRow(self.config_file_label, self.config_path_label)
+        database_form.addRow(self.config_file_label, self.config_path_label)
 
         self.database_path_edit = QLineEdit(self.db.db_path)
         self.database_browse_button = QPushButton()
         self.database_browse_button.clicked.connect(self.browse_database_path)
         database_path_row = QWidget()
+        database_path_row.setObjectName("TransparentRow")
         database_path_layout = QHBoxLayout(database_path_row)
         database_path_layout.setContentsMargins(0, 0, 0, 0)
         database_path_layout.setSpacing(8)
         database_path_layout.addWidget(self.database_path_edit, 1)
         database_path_layout.addWidget(self.database_browse_button)
         self.database_path_label = QLabel()
-        form.addRow(self.database_path_label, database_path_row)
-        form_layout.addLayout(form)
+        database_form.addRow(self.database_path_label, database_path_row)
+        database_layout.addLayout(database_form)
 
         button_row = QHBoxLayout()
         self.apply_db_button = QPushButton()
@@ -456,21 +672,41 @@ class MindTaskWindow(QMainWindow):
         button_row.addWidget(self.apply_db_button)
         button_row.addWidget(self.create_db_button)
         button_row.addWidget(self.reload_db_button)
+        self.database_message = QLabel("")
+        self.database_message.setObjectName("MutedLabel")
+        self.database_message.hide()
+        button_row.addWidget(self.database_message)
         button_row.addStretch()
-        form_layout.addLayout(button_row)
+        database_layout.addLayout(button_row)
+        database_layout.addStretch()
 
-        self.settings_message = QLabel("")
-        self.settings_message.setObjectName("MutedLabel")
-        form_layout.addWidget(self.settings_message)
-
-        layout.addWidget(form_panel)
-        layout.addStretch()
+        self.settings_stack.addWidget(self._settings_scroll_area(general_panel))
+        self.settings_stack.addWidget(self._settings_scroll_area(database_panel))
+        self.settings_stack.addWidget(self._settings_scroll_area(shortcut_panel))
+        self.settings_section_list.setCurrentRow(0)
         return page
+
+    def _settings_scroll_area(self, widget: QWidget) -> QScrollArea:
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(widget, 1)
+        scroll_area.setWidget(content)
+        return scroll_area
 
     def _section_label(self, text: str) -> QLabel:
         label = QLabel(text)
         label.setObjectName("SectionLabel")
         return label
+
+    def show_inline_message(self, label: QLabel, message: str, timeout_ms: int = 3500) -> None:
+        label.setText(message)
+        label.setVisible(bool(message))
+        if message:
+            QTimer.singleShot(timeout_ms, label.hide)
 
     def retranslate_ui(self) -> None:
         self.setWindowTitle("MindTask")
@@ -515,10 +751,21 @@ class MindTaskWindow(QMainWindow):
         )
         self._update_project_sort_indicator()
 
-        self.settings_title_label.setText(self.tr("settings"))
+        self.settings_sections_label.setText(self.tr("settings"))
+        self._retranslate_settings_sections()
+        self.general_settings_title_label.setText(self.tr("settings_general"))
+        self.data_settings_title_label.setText(self.tr("settings_data"))
         self.theme_label.setText(self.tr("theme"))
         self.language_label.setText(self.tr("language"))
         self.due_day_end_label.setText(self.tr("due_day_end"))
+        self.shortcuts_title_label.setText(self.tr("keyboard_shortcuts"))
+        for action, translation_key in SHORTCUT_ACTIONS:
+            self.shortcut_labels[action].setText(self.tr(translation_key))
+            self.shortcut_cancel_buttons[action].setText(self.tr("cancel_change"))
+            self.shortcut_default_buttons[action].setText(self.tr("restore_default"))
+            self.update_shortcut_row_state(action)
+        self.apply_shortcuts_button.setText(self.tr("apply_shortcuts"))
+        self.reset_shortcuts_button.setText(self.tr("reset_all_shortcuts"))
         self.config_file_label.setText(self.tr("config_file"))
         self.database_path_label.setText(self.tr("database_path"))
         self.apply_db_button.setText(self.tr("apply_database"))
@@ -572,6 +819,24 @@ class MindTaskWindow(QMainWindow):
         if isinstance(current_value, str):
             self._set_due_day_end_combo(current_value)
 
+    def _retranslate_settings_sections(self) -> None:
+        current_row = max(0, self.settings_section_list.currentRow())
+        labels = [
+            self.tr("settings_general"),
+            self.tr("settings_data"),
+            self.tr("keyboard_shortcuts"),
+        ]
+        self.settings_section_list.blockSignals(True)
+        self.settings_section_list.clear()
+        for index, label in enumerate(labels):
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, index)
+            self._apply_list_item_color(item)
+            self.settings_section_list.addItem(item)
+        self.settings_section_list.setCurrentRow(min(current_row, len(labels) - 1))
+        self.settings_section_list.blockSignals(False)
+        self.switch_settings_section(self.settings_section_list.currentRow())
+
     def refresh_all(self) -> None:
         self.refresh_projects()
         self.refresh_project_table()
@@ -585,6 +850,47 @@ class MindTaskWindow(QMainWindow):
             return
         self.search_edit.clear()
         self.refresh_tasks()
+
+    def shortcut_new_task(self) -> None:
+        if self._is_tasks_page():
+            self.open_new_task_dialog()
+
+    def shortcut_focus_search(self) -> None:
+        if not self._is_tasks_page():
+            return
+        self.search_edit.setFocus(Qt.FocusReason.ShortcutFocusReason)
+        self.search_edit.selectAll()
+
+    def shortcut_escape_tasks(self) -> None:
+        if not self._is_tasks_page():
+            return
+        if self._is_task_detail_open():
+            self.close_task_detail()
+            return
+        self.clear_search()
+
+    def shortcut_save_task(self) -> None:
+        if self._is_tasks_page() and self._is_task_detail_open():
+            self.save_selected_task()
+
+    def shortcut_complete_task(self) -> None:
+        if self._is_tasks_page() and self._is_task_detail_open():
+            self.complete_selected_task()
+
+    def shortcut_delete_task(self) -> None:
+        if self._is_tasks_page() and self._is_task_detail_open():
+            self.delete_selected_task()
+
+    def _is_tasks_page(self) -> bool:
+        return self.page_stack.currentIndex() == 0
+
+    def _is_task_detail_open(self) -> bool:
+        return (
+            hasattr(self, "detail_panel")
+            and self.selected_task_id is not None
+            and not self.detail_panel.isHidden()
+            and self.detail_panel.maximumWidth() > 0
+        )
 
     def switch_page(self, index: int) -> None:
         index = max(0, min(index, self.page_stack.count() - 1))
@@ -608,6 +914,12 @@ class MindTaskWindow(QMainWindow):
         self.projects_nav_button.style().polish(self.projects_nav_button)
         self.settings_nav_button.style().unpolish(self.settings_nav_button)
         self.settings_nav_button.style().polish(self.settings_nav_button)
+
+    def switch_settings_section(self, index: int) -> None:
+        index = max(0, min(index, self.settings_stack.count() - 1))
+        self.settings_stack.setCurrentIndex(index)
+        if self.settings_section_list.currentRow() != index:
+            self.settings_section_list.setCurrentRow(index)
 
     def refresh_projects(self) -> None:
         selected_sidebar_project_id = self._current_project_id()
@@ -1040,6 +1352,86 @@ class MindTaskWindow(QMainWindow):
         except Exception as exc:
             QMessageBox.warning(self, self.tr("settings"), self.tr("could_not_save_due_day_end", error=exc))
 
+    def apply_shortcuts_from_settings(self) -> None:
+        shortcuts = self._shortcut_settings_sequences()
+        duplicate = self._first_duplicate_shortcut(shortcuts)
+        if duplicate:
+            QMessageBox.warning(
+                self,
+                self.tr("keyboard_shortcuts"),
+                self.tr("duplicate_shortcut", shortcut=duplicate),
+            )
+            return
+        try:
+            save_ui_shortcuts(shortcuts, self.config_path)
+        except Exception as exc:
+            QMessageBox.warning(self, self.tr("keyboard_shortcuts"), self.tr("could_not_save_shortcuts", error=exc))
+            return
+        self.shortcut_sequences = shortcuts
+        self._build_shortcuts()
+        self.update_shortcut_change_indicators()
+        self.show_inline_message(self.shortcuts_message, self.tr("shortcuts_updated"))
+
+    def cancel_shortcut_change(self, action: str) -> None:
+        self.shortcut_edits[action].setKeySequence(QKeySequence(self.shortcut_sequences.get(action, "")))
+        self.update_shortcut_row_state(action)
+
+    def reset_shortcut_to_default(self, action: str) -> None:
+        self.shortcut_edits[action].setKeySequence(QKeySequence(DEFAULT_UI_SHORTCUTS.get(action, "")))
+        self.update_shortcut_row_state(action)
+
+    def reset_all_shortcuts_to_defaults(self) -> None:
+        for action, sequence in DEFAULT_UI_SHORTCUTS.items():
+            self.shortcut_edits[action].setKeySequence(QKeySequence(sequence))
+            self.update_shortcut_row_state(action)
+
+    def update_shortcut_change_indicators(self) -> None:
+        for action, _translation_key in SHORTCUT_ACTIONS:
+            self.update_shortcut_row_state(action)
+
+    def update_shortcut_row_state(self, action: str) -> None:
+        is_modified = self._shortcut_edit_text(action) != self._saved_shortcut_text(action)
+        self.shortcut_cancel_buttons[action].setEnabled(is_modified)
+        self._set_shortcut_row_property(action, "shortcutModified", is_modified)
+
+    def update_shortcut_focus_state(self, action: str, has_focus: bool) -> None:
+        if has_focus:
+            self.shortcut_active_rows.add(action)
+        else:
+            self.shortcut_active_rows.discard(action)
+        self._set_shortcut_row_property(action, "shortcutActive", has_focus)
+
+    def _set_shortcut_row_property(self, action: str, name: str, value: bool) -> None:
+        row = self.shortcut_rows[action]
+        row.setProperty(name, value)
+        row.style().unpolish(row)
+        row.style().polish(row)
+        row.update()
+
+    def _shortcut_edit_text(self, action: str) -> str:
+        return self.shortcut_edits[action].keySequence().toString(QKeySequence.SequenceFormat.PortableText)
+
+    def _saved_shortcut_text(self, action: str) -> str:
+        return QKeySequence(self.shortcut_sequences.get(action, "")).toString(QKeySequence.SequenceFormat.PortableText)
+
+    def _shortcut_settings_sequences(self) -> Dict[str, str]:
+        shortcuts: Dict[str, str] = {}
+        for action, _translation_key in SHORTCUT_ACTIONS:
+            shortcuts[action] = self._shortcut_edit_text(action)
+        return shortcuts
+
+    def _first_duplicate_shortcut(self, shortcuts: Dict[str, str]) -> str:
+        seen = set()
+        for sequence in shortcuts.values():
+            key_sequence = QKeySequence(sequence)
+            if key_sequence.isEmpty():
+                continue
+            canonical = key_sequence.toString(QKeySequence.SequenceFormat.PortableText)
+            if canonical in seen:
+                return canonical
+            seen.add(canonical)
+        return ""
+
     def _apply_theme_to_app(self, theme: str) -> None:
         app = QApplication.instance()
         if app is not None:
@@ -1063,7 +1455,7 @@ class MindTaskWindow(QMainWindow):
             save_database_path(database_path, self.config_path)
             self.db = MindTaskDB(config_path=self.config_path)
             self.database_path_edit.setText(self.db.db_path)
-            self.settings_message.setText(self.tr("database_updated"))
+            self.show_inline_message(self.database_message, self.tr("database_updated"))
             self.refresh_all()
         except Exception as exc:
             QMessageBox.warning(self, self.tr("database"), self.tr("database_opened_config_failed", error=exc))
@@ -1106,7 +1498,7 @@ class MindTaskWindow(QMainWindow):
             save_database_path(str(target), self.config_path)
             self.db = MindTaskDB(config_path=self.config_path)
             self.database_path_edit.setText(self.db.db_path)
-            self.settings_message.setText(self.tr("database_created"))
+            self.show_inline_message(self.database_message, self.tr("database_created"))
             self.refresh_all()
         except Exception as exc:
             QMessageBox.warning(self, self.tr("database"), self.tr("could_not_create_database", error=exc))
@@ -1115,7 +1507,7 @@ class MindTaskWindow(QMainWindow):
         try:
             self.db = MindTaskDB(config_path=self.config_path)
             self.database_path_edit.setText(self.db.db_path)
-            self.settings_message.setText(self.tr("database_reloaded"))
+            self.show_inline_message(self.database_message, self.tr("database_reloaded"))
             self.refresh_all()
         except Exception as exc:
             QMessageBox.warning(self, self.tr("database"), self.tr("could_not_reload_database", error=exc))

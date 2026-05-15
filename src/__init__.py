@@ -2,7 +2,7 @@
 
 from .core import MindTaskDB
 
-__version__ = "1.1.3"
+__version__ = "1.1.4"
 __author__ = "MindTask Team"
 
 __all__ = [

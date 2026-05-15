@@ -129,6 +129,7 @@ def badge_colors_for_theme(theme: str, app=None):
 
 
 def build_app_style(theme: str = THEME_SYSTEM, app=None) -> str:
+    resolved = resolve_theme(theme, app)
     colors = colors_for_theme(theme, app)
     return f"""
 QWidget {{
@@ -179,6 +180,9 @@ QLabel {{
     background: transparent;
     color: {colors["text"]};
 }}
+QWidget#TransparentRow {{
+    background: transparent;
+}}
 QLabel#SectionLabel {{
     color: {colors["strong_text"]};
     font-weight: 600;
@@ -186,6 +190,18 @@ QLabel#SectionLabel {{
 }}
 QLabel#MutedLabel {{
     color: {colors["muted_text"]};
+}}
+QFrame#ShortcutRow {{
+    border: 1px solid transparent;
+    border-radius: 6px;
+}}
+QFrame#ShortcutRow[shortcutActive="true"] {{
+    background: {colors["selection_bg"]};
+    border: 1px solid {colors["primary"]};
+}}
+QFrame#ShortcutRow[shortcutModified="true"] {{
+    background: {"#fffbeb" if resolved == THEME_LIGHT else "#3f3420"};
+    border: 1px solid {"#d97706" if resolved == THEME_LIGHT else "#b7791f"};
 }}
 QLabel#EmptyState {{
     color: {colors["muted_text"]};

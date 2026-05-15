@@ -16,10 +16,16 @@ Update it immediately before creating a release commit, not after every local ch
 
 ## Entries
 
+## 1.1.4 - 2026-05-15
+
+- Summary: Add configurable desktop shortcuts and reorganize settings for clearer daily use.
+- Changed: Added configurable window-scoped keyboard shortcuts with per-action reset/cancel controls, duplicate shortcut validation, shortcut settings persisted in config, a custom keyboard-only shortcut editor, reorganized settings into General, Data, and Keyboard Shortcuts sections with a task-page-style sidebar, refined settings feedback messages, and updated all-day due settings wording to latest work time.
+- Verified: Ran Python compile checks, config shortcut smoke checks, and offscreen desktop UI smoke checks for shortcut editing, settings section navigation, full-height settings layout, inline settings messages, and latest work time text.
+
 ## 1.1.3 - 2026-05-15
 
 - Summary: Improve desktop task editing ergonomics and table navigation.
-- Changed: Added reusable date/time picker controls for task due dates, configurable date-only due times, half-hour time suggestions with editable precise times, automatic due mode switching from date/time focus, wider task detail drawer defaults, sortable task and project tables, and clearer search reset behavior.
+- Changed: Added reusable date/time picker controls for task due dates, configurable all-day due boundaries, half-hour time suggestions with editable precise times, automatic due mode switching from date/time focus, wider task detail drawer defaults, sortable task and project tables, and clearer search reset behavior.
 - Verified: Ran Python compile checks, whitespace checks, CLI version check, config due-time checks, and offscreen desktop UI smoke checks for due-date editing, task dialogs, search reset, and task/project table sorting.
 
 ## 1.1.2 - 2026-05-14

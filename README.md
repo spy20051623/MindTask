@@ -73,7 +73,7 @@ due_day_end = same_day
 
 Relative paths are resolved from the project root. Use `--config path/to/file.ini` to run with another config file. If that config file does not exist, MindTask copies it from `config/mindtask.ini.template`. If the template is missing, startup fails with an error.
 
-`ui.due_day_end` controls the due time used when the desktop UI user selects only a date. Use `same_day` for `23:59:59` on the selected date or `next_day_early_morning` for `04:59:59` on the next day.
+`ui.due_day_end` controls the latest work time used when the desktop UI user sets a task due date to all day. Use `same_day` for `23:59:59` on the selected date or `next_day_early_morning` for `04:59:59` on the next day.
 
 ## Development
 

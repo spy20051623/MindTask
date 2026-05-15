@@ -9,3 +9,17 @@ default_search_limit = 20
 theme = system
 language = en
 due_day_end = same_day
+
+[shortcuts]
+open_tasks = Ctrl+1
+open_projects = Ctrl+2
+open_settings = Ctrl+3
+new_task = Ctrl+N
+focus_search = Ctrl+F
+escape_tasks = Esc
+refresh = F5
+undo = Ctrl+Z
+history = Ctrl+H
+save_task = Ctrl+S
+complete_task = Ctrl+Enter
+delete_task = Ctrl+R
