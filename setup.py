@@ -8,9 +8,9 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="mindtask",
-    version="1.0.0",
+    version="1.2.0",
     author="MindTask Team",
-    description="A small SQLite task manager with CLI, shell, and JSON-RPC integrations",
+    description="A small SQLite task manager with CLI and desktop UI",
     long_description=long_description,
     long_description_content_type="text/markdown",
     packages=find_packages(include=["src", "src.*"]),
@@ -29,14 +29,15 @@ setup(
             "black>=21.0",
             "flake8>=3.9",
         ],
-        "mcp": [
-            "mcp>=1.0",
+        "ui": [
+            "PySide6>=6.5",
+            "QtAwesome>=1.4",
         ],
     },
     entry_points={
         "console_scripts": [
             "mindtask=src.cli.cli:main",
-            "mindtask-shell=src.cli.shell:main",
+            "mindtask-ui=src.ui.app:main",
         ],
     },
     include_package_data=True,

@@ -8,14 +8,17 @@ __pycache__/
 htmlcov/
 build/
 dist/
+*.spec
 *.egg-info/
 .venv/
 venv/
 env/
 .idea/
 .vscode/
+AGENTS.md
 *.sqlite
 *.sqlite3
 *.db
 data/*.db
+config/mindtask.ini
 *.log

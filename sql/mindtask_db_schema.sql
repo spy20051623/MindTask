@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     description TEXT DEFAULT '',
     project_id INTEGER,
     priority INTEGER DEFAULT 0 CHECK (priority BETWEEN 0 AND 3),
-    status INTEGER DEFAULT 0 CHECK (status BETWEEN 0 AND 2),
+    status INTEGER DEFAULT 0 CHECK (status BETWEEN 0 AND 3),
     due_date TIMESTAMP,
     completed_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -91,9 +91,10 @@ SELECT
     END AS priority_text,
     t.status,
     CASE t.status
-        WHEN 0 THEN 'Open'
-        WHEN 1 THEN 'Doing'
-        WHEN 2 THEN 'Done'
+        WHEN 0 THEN 'not_started'
+        WHEN 1 THEN 'in_progress'
+        WHEN 2 THEN 'suspended'
+        WHEN 3 THEN 'completed'
         ELSE 'Unknown'
     END AS status_text,
     t.due_date,
@@ -121,9 +122,10 @@ SELECT
     END AS priority_text,
     t.status,
     CASE t.status
-        WHEN 0 THEN 'Open'
-        WHEN 1 THEN 'Doing'
-        WHEN 2 THEN 'Done'
+        WHEN 0 THEN 'not_started'
+        WHEN 1 THEN 'in_progress'
+        WHEN 2 THEN 'suspended'
+        WHEN 3 THEN 'completed'
         ELSE 'Unknown'
     END AS status_text,
     t.due_date,
@@ -137,22 +139,6 @@ LEFT JOIN projects p ON t.project_id = p.id
 LEFT JOIN task_tags tt ON t.id = tt.task_id
 LEFT JOIN tags tg ON tt.tag_id = tg.id
 GROUP BY t.id;
-
-INSERT INTO projects (name, description, color)
-SELECT 'Work', 'Work-related tasks', '#007BFF'
-WHERE NOT EXISTS (SELECT 1 FROM projects WHERE name = 'Work');
-
-INSERT INTO projects (name, description, color)
-SELECT 'Personal', 'Personal life tasks', '#28A745'
-WHERE NOT EXISTS (SELECT 1 FROM projects WHERE name = 'Personal');
-
-INSERT INTO projects (name, description, color)
-SELECT 'Learning', 'Learning and growth tasks', '#FFC107'
-WHERE NOT EXISTS (SELECT 1 FROM projects WHERE name = 'Learning');
-
-INSERT INTO projects (name, description, color)
-SELECT 'Health', 'Health and exercise tasks', '#DC3545'
-WHERE NOT EXISTS (SELECT 1 FROM projects WHERE name = 'Health');
 
 INSERT INTO tags (name, color)
 SELECT 'Urgent', '#DC3545'
