@@ -16,6 +16,12 @@ Update it immediately before creating a release commit, not after every local ch
 
 ## Entries
 
+## 1.2.1 - 2026-05-15
+
+- Summary: Fix shortcut editing and validation edge cases after the 1.2.0 release.
+- Changed: Disabled window shortcuts while editing shortcut fields so saved shortcuts can be re-entered, normalized Enter handling so both keyboard Enter keys are treated as `Enter`, added real-time red warnings and save blocking for duplicate or input-conflicting shortcuts, changed the default undo shortcut from `Ctrl+Z` to `Ctrl+U`, and normalized shifted key shortcuts such as `Ctrl+Shift+1` so they do not save or trigger as `Ctrl+Shift+!`.
+- Verified: Ran Python compile checks and offscreen desktop UI checks for shortcut focus handling, Enter normalization, duplicate and invalid shortcut warnings, save rejection, and shifted-key shortcut registration.
+
 ## 1.2.0 - 2026-05-15
 
 - Summary: Prepare a leaner desktop-focused release with modular UI code, Windows packaging, and obsolete interface cleanup.

@@ -52,6 +52,8 @@ class ShortcutSettingsMixin:
             row.setObjectName("ShortcutRow")
             row.setProperty("shortcutModified", False)
             row.setProperty("shortcutActive", False)
+            row.setProperty("shortcutDuplicate", False)
+            row.setProperty("shortcutInvalid", False)
             row_layout = QHBoxLayout(row)
             row_layout.setContentsMargins(8, 6, 8, 6)
             row_layout.setSpacing(8)
@@ -117,13 +119,15 @@ class ShortcutSettingsMixin:
 
     def apply_shortcuts_from_settings(self) -> None:
         shortcuts = self._shortcut_settings_sequences()
+        invalid = self._first_invalid_shortcut(shortcuts)
+        if invalid:
+            self.update_shortcut_change_indicators()
+            self.show_inline_message(self.shortcuts_message, self.tr("invalid_shortcut", shortcut=invalid))
+            return
         duplicate = self._first_duplicate_shortcut(shortcuts)
         if duplicate:
-            QMessageBox.warning(
-                self,
-                self.tr("keyboard_shortcuts"),
-                self.tr("duplicate_shortcut", shortcut=duplicate),
-            )
+            self.update_shortcut_change_indicators()
+            self.show_inline_message(self.shortcuts_message, self.tr("duplicate_shortcut", shortcut=duplicate))
             return
         try:
             save_ui_shortcuts(shortcuts, self.config_path)
@@ -149,6 +153,7 @@ class ShortcutSettingsMixin:
             self.update_shortcut_row_state(action)
 
     def update_shortcut_change_indicators(self) -> None:
+        self._update_shortcut_warning_rows()
         for action, _translation_key in SHORTCUT_ACTIONS:
             self.update_shortcut_row_state(action)
 
@@ -156,6 +161,7 @@ class ShortcutSettingsMixin:
         is_modified = self._shortcut_edit_text(action) != self._saved_shortcut_text(action)
         self.shortcut_cancel_buttons[action].setEnabled(is_modified)
         self._set_shortcut_row_property(action, "shortcutModified", is_modified)
+        self._update_shortcut_warning_rows()
 
     def update_shortcut_focus_state(self, action: str, has_focus: bool) -> None:
         if has_focus:
@@ -163,6 +169,24 @@ class ShortcutSettingsMixin:
         else:
             self.shortcut_active_rows.discard(action)
         self._set_shortcut_row_property(action, "shortcutActive", has_focus)
+        self._set_window_shortcuts_enabled(not self.shortcut_active_rows)
+
+    def _set_window_shortcuts_enabled(self, enabled: bool) -> None:
+        for shortcut in getattr(self, "shortcuts", []):
+            shortcut.setEnabled(enabled)
+
+    def _update_shortcut_warning_rows(self) -> None:
+        shortcuts = self._shortcut_settings_sequences()
+        invalids = self._invalid_shortcut_actions(shortcuts)
+        duplicates = self._duplicate_shortcut_actions(shortcuts)
+        for action, _translation_key in SHORTCUT_ACTIONS:
+            self._set_shortcut_row_property(action, "shortcutInvalid", action in invalids)
+            self._set_shortcut_row_property(action, "shortcutDuplicate", action in duplicates)
+
+    def _update_duplicate_shortcut_rows(self) -> None:
+        duplicates = self._duplicate_shortcut_actions(self._shortcut_settings_sequences())
+        for action, _translation_key in SHORTCUT_ACTIONS:
+            self._set_shortcut_row_property(action, "shortcutDuplicate", action in duplicates)
 
     def _set_shortcut_row_property(self, action: str, name: str, value: bool) -> None:
         row = self.shortcut_rows[action]
@@ -186,11 +210,71 @@ class ShortcutSettingsMixin:
     def _first_duplicate_shortcut(self, shortcuts: Dict[str, str]) -> str:
         seen = set()
         for sequence in shortcuts.values():
-            key_sequence = QKeySequence(sequence)
-            if key_sequence.isEmpty():
+            canonical = self._canonical_shortcut_text(sequence)
+            if not canonical:
                 continue
-            canonical = key_sequence.toString(QKeySequence.SequenceFormat.PortableText)
             if canonical in seen:
                 return canonical
             seen.add(canonical)
         return ""
+
+    def _first_invalid_shortcut(self, shortcuts: Dict[str, str]) -> str:
+        for sequence in shortcuts.values():
+            canonical = self._canonical_shortcut_text(sequence)
+            if canonical and not self._is_allowed_shortcut(canonical):
+                return canonical
+        return ""
+
+    def _invalid_shortcut_actions(self, shortcuts: Dict[str, str]) -> set[str]:
+        invalids = set()
+        for action, sequence in shortcuts.items():
+            canonical = self._canonical_shortcut_text(sequence)
+            if canonical and not self._is_allowed_shortcut(canonical):
+                invalids.add(action)
+        return invalids
+
+    def _duplicate_shortcut_actions(self, shortcuts: Dict[str, str]) -> set[str]:
+        by_sequence: Dict[str, list[str]] = {}
+        for action, sequence in shortcuts.items():
+            canonical = self._canonical_shortcut_text(sequence)
+            if not canonical:
+                continue
+            by_sequence.setdefault(canonical, []).append(action)
+        return {
+            action
+            for actions in by_sequence.values()
+            if len(actions) > 1
+            for action in actions
+        }
+
+    def _canonical_shortcut_text(self, sequence: str) -> str:
+        key_sequence = QKeySequence(sequence)
+        if key_sequence.isEmpty():
+            return ""
+        canonical = key_sequence.toString(QKeySequence.SequenceFormat.PortableText)
+        parts = canonical.split("+")
+        if parts and parts[-1] == "Return":
+            return "+".join([*parts[:-1], "Enter"])
+        return canonical
+
+    def _is_allowed_shortcut(self, canonical: str) -> bool:
+        parts = canonical.split("+")
+        if not parts:
+            return True
+        key = parts[-1]
+        modifiers = set(parts[:-1])
+        has_strong_modifier = bool(modifiers & {"Ctrl", "Alt", "Meta"})
+        if has_strong_modifier:
+            return True
+        if modifiers:
+            return False
+        return key == "Esc" or self._is_function_key(key)
+
+    def _is_function_key(self, key: str) -> bool:
+        if not key.startswith("F"):
+            return False
+        try:
+            number = int(key[1:])
+        except ValueError:
+            return False
+        return 1 <= number <= 12

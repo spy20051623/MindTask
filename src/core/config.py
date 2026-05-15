@@ -22,7 +22,7 @@ DEFAULT_UI_SHORTCUTS = {
     "focus_search": "Ctrl+F",
     "escape_tasks": "Esc",
     "refresh": "F5",
-    "undo": "Ctrl+Z",
+    "undo": "Ctrl+U",
     "history": "Ctrl+H",
     "save_task": "Ctrl+S",
     "complete_task": "Ctrl+Enter",
