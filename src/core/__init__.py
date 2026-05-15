@@ -8,6 +8,7 @@ from .config import (
     get_config_template_path,
     load_config,
     save_database_path,
+    save_ui_due_day_end,
     save_ui_language,
     save_ui_theme,
 )
@@ -25,6 +26,7 @@ __all__ = [
     "load_config",
     "normalize_due_date",
     "save_database_path",
+    "save_ui_due_day_end",
     "save_ui_language",
     "save_ui_theme",
 ]

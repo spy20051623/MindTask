@@ -58,6 +58,7 @@ The Settings page includes:
 
 - Theme selection: `system`, `light`, and `dark`
 - Language selection: `en` and `zh`
+- Date-only due time: selected day `23:59:59` or next day `04:59:59`
 - Active config file path
 - Database path
 - Database creation with sample projects and tasks
@@ -65,6 +66,7 @@ The Settings page includes:
 The default theme is `system`, which follows the operating system color scheme when Qt can detect it.
 Theme selection is saved to the active config file under `ui.theme`.
 The default language is `en`. Language selection is saved to the active config file under `ui.language`.
+The default date-only due time is `same_day`, which stores selected-date-only due dates as `23:59:59` on that date. Users who treat late-night work as part of the previous day can choose `next_day_early_morning`, which stores them as `04:59:59` on the next day.
 
 Changing the database path requires clicking `Apply Database`. MindTask first attempts to open and read the database at the new path. The active config and UI data source are updated only after that check succeeds.
 
@@ -77,7 +79,7 @@ Creating a database requires entering a path that does not already exist and cli
 - Filter by project
 - Manage projects
 - Create a task
-- Edit title, description, status, priority, project, and due date
+- Edit title, description, status, priority, project, and due date with date/time pickers
 - Complete a task
 - Delete a task
 - Open operation history

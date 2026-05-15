@@ -8,4 +8,4 @@ default_search_limit = 20
 [ui]
 theme = system
 language = en
-
+due_day_end = same_day

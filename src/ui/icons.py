@@ -52,5 +52,5 @@ def icon_button(tooltip: str, icon_name: str, fallback_text: str, theme: str, ha
     button.setToolTip(tooltip)
     button.setAccessibleName(tooltip)
     set_action_button_icon(button, icon_name, fallback_text, theme)
-    button.clicked.connect(handler)
+    button.clicked.connect(lambda _checked=False: handler())
     return button

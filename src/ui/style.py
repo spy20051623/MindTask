@@ -154,7 +154,7 @@ QFrame#BottomNav {{
     border-top: 1px solid {colors["border"]};
     color: {colors["text"]};
 }}
-QLineEdit, QTextEdit, QComboBox, QListWidget, QTableWidget {{
+QLineEdit, QTextEdit, QComboBox, QDateEdit, QListWidget, QTableWidget {{
     background: {colors["input_bg"]};
     color: {colors["text"]};
     border: 1px solid {colors["border"]};
@@ -169,7 +169,7 @@ QLineEdit#SearchInput {{
 QLineEdit::placeholder {{
     color: {colors["placeholder"]};
 }}
-QComboBox QAbstractItemView {{
+QComboBox QAbstractItemView, QDateEdit QAbstractItemView {{
     background: {colors["input_bg"]};
     color: {colors["text"]};
     selection-background-color: {colors["selection_bg"]};

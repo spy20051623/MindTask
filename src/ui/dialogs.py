@@ -34,6 +34,7 @@ from .constants import (
     PRIORITY_TRANSLATION_KEYS,
 )
 from .dialog_helpers import confirm_question, localize_dialog_buttons, required_label
+from .due_date_editor import DUE_DAY_END_SAME_DAY, DueDateEditor
 from .i18n import Translator
 from .style import THEME_SYSTEM, badge_colors_for_theme, build_app_style, colors_for_theme
 
@@ -232,7 +233,13 @@ class ProjectDialog(QDialog):
 class TaskDialog(QDialog):
     """Dialog for creating a task."""
 
-    def __init__(self, projects: List[Dict[str, Any]], language: str = "system", parent: Optional[QWidget] = None):
+    def __init__(
+        self,
+        projects: List[Dict[str, Any]],
+        language: str = "system",
+        due_day_end: str = DUE_DAY_END_SAME_DAY,
+        parent: Optional[QWidget] = None,
+    ):
         super().__init__(parent)
         self.translator = Translator(language)
         self.setWindowTitle(self.tr("new_task"))
@@ -246,8 +253,7 @@ class TaskDialog(QDialog):
         self.description_edit = QTextEdit()
         self.priority_combo = QComboBox()
         self.project_combo = QComboBox()
-        self.due_edit = QLineEdit()
-        self.due_edit.setPlaceholderText("YYYY-MM-DD HH:MM:SS")
+        self.due_editor = DueDateEditor(due_day_end=due_day_end, language=language)
 
         for priority in PRIORITY_LABELS:
             self.priority_combo.addItem(self.tr(PRIORITY_TRANSLATION_KEYS[priority]), priority)
@@ -262,7 +268,7 @@ class TaskDialog(QDialog):
         form.addRow(self.tr("description"), self.description_edit)
         form.addRow(self.tr("priority"), self.priority_combo)
         form.addRow(self.tr("project"), self.project_combo)
-        form.addRow(self.tr("due"), self.due_edit)
+        form.addRow(self.tr("due"), self.due_editor)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -273,7 +279,7 @@ class TaskDialog(QDialog):
         form.addWidget(buttons)
 
     def task_data(self) -> Dict[str, Any]:
-        due_date = self.due_edit.text().strip() or None
+        due_date = self.due_editor.due_value()
         return {
             "title": self.title_edit.text().strip(),
             "description": self.description_edit.toPlainText().strip(),
@@ -290,7 +296,7 @@ class TaskDialog(QDialog):
             QMessageBox.warning(self, self.tr("invalid_task"), self.tr("title_required"))
             return
         try:
-            normalize_due_date(self.due_edit.text().strip() or None)
+            normalize_due_date(self.due_editor.due_value())
         except ValueError as exc:
             QMessageBox.warning(self, self.tr("invalid_due_date"), str(exc))
             return

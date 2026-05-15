@@ -6,8 +6,8 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt
+from PySide6.QtGui import QAction, QColor
 from PySide6.QtWidgets import (
     QApplication,
     QAbstractItemView,
@@ -36,8 +36,17 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..core import MindTaskDB, get_config_path, normalize_due_date, save_database_path, save_ui_language, save_ui_theme
+from ..core import (
+    MindTaskDB,
+    get_config_path,
+    normalize_due_date,
+    save_database_path,
+    save_ui_due_day_end,
+    save_ui_language,
+    save_ui_theme,
+)
 from .constants import (
+    DUE_DAY_END_TRANSLATION_KEYS,
     PRIORITY_LABELS,
     PRIORITY_TRANSLATION_KEYS,
     STATUS_LABELS,
@@ -47,9 +56,15 @@ from .constants import (
 )
 from .dialog_helpers import confirm_question, required_label
 from .dialogs import HistoryDialog, ProjectDialog, TaskDialog
-from .icons import icon_button, set_action_button_icon
+from .due_date_editor import DUE_DAY_END_OPTIONS, DueDateEditor
+from .icons import icon_button, set_action_button_icon, themed_icon
 from .i18n import LANGUAGE_LABELS, LANGUAGE_OPTIONS, Translator
 from .style import THEME_OPTIONS, THEME_SYSTEM, badge_colors_for_theme, build_app_style, colors_for_theme
+
+
+DETAIL_PANEL_MIN_WIDTH = 420
+DETAIL_PANEL_WIDTH = 480
+SIDEBAR_WIDTH = 220
 
 
 class MindTaskWindow(QMainWindow):
@@ -63,6 +78,12 @@ class MindTaskWindow(QMainWindow):
         self.selected_task_id: Optional[int] = None
         self.theme = self.db.config.ui_theme
         self.language = self.db.config.ui_language
+        self.due_day_end = self.db.config.ui_due_day_end
+        self.task_sort_column = 0
+        self.task_sort_order = Qt.SortOrder.AscendingOrder
+        self.project_sort_column = 0
+        self.project_sort_order = Qt.SortOrder.AscendingOrder
+        self.active_search_keyword = ""
         self.translator = Translator(self.language)
         self._apply_theme_to_app(self.theme)
 
@@ -119,12 +140,15 @@ class MindTaskWindow(QMainWindow):
         return panel
 
     def _build_tasks_page(self) -> QWidget:
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.addWidget(self._build_sidebar())
-        splitter.addWidget(self._build_task_table())
-        splitter.addWidget(self._build_detail_panel())
-        splitter.setSizes([220, 620, 340])
-        return splitter
+        self.tasks_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.tasks_splitter.addWidget(self._build_sidebar())
+        self.tasks_splitter.addWidget(self._build_task_table())
+        self.detail_panel = self._build_detail_panel()
+        self.detail_panel.setMaximumWidth(0)
+        self.detail_panel.hide()
+        self.tasks_splitter.addWidget(self.detail_panel)
+        self.tasks_splitter.setSizes([SIDEBAR_WIDTH, 960, 0])
+        return self.tasks_splitter
 
     def _build_sidebar(self) -> QWidget:
         panel = QFrame()
@@ -156,7 +180,13 @@ class MindTaskWindow(QMainWindow):
 
         self.search_edit = QLineEdit()
         self.search_edit.setObjectName("SearchInput")
+        self.clear_search_action = QAction(self)
+        self.clear_search_action.setIcon(themed_icon("fa6s.xmark", self.theme))
+        self.clear_search_action.triggered.connect(self.clear_search)
+        self.search_edit.addAction(self.clear_search_action, QLineEdit.ActionPosition.TrailingPosition)
+        self.search_edit.textChanged.connect(self.update_search_clear_action)
         self.search_edit.returnPressed.connect(self.refresh_tasks)
+        self.update_search_clear_action()
         actions_row.addWidget(self.search_edit, 1)
 
         self.add_button = self._icon_button(
@@ -209,7 +239,11 @@ class MindTaskWindow(QMainWindow):
         self.task_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self.task_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         self.task_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        self.task_table.horizontalHeader().setSectionsClickable(True)
+        self.task_table.horizontalHeader().setSortIndicatorShown(True)
+        self.task_table.horizontalHeader().sectionClicked.connect(self.sort_tasks_by_column)
         self.task_table.itemSelectionChanged.connect(self.load_selected_task)
+        self.task_table.cellClicked.connect(lambda _row, _column: self.load_selected_task())
 
         self.empty_label = QLabel()
         self.empty_label.setObjectName("EmptyState")
@@ -234,6 +268,8 @@ class MindTaskWindow(QMainWindow):
         self._set_action_button_icon(self.add_button, "fa6s.plus", "New")
         self._set_action_button_icon(self.refresh_button, "fa6s.arrows-rotate", "Ref")
         self._set_action_button_icon(self.history_button, "fa6s.clock-rotate-left", "His")
+        self._set_action_button_icon(self.close_detail_button, "fa6s.xmark", "X")
+        self.clear_search_action.setIcon(themed_icon("fa6s.xmark", self.theme))
 
     def _build_detail_panel(self) -> QWidget:
         panel = QFrame()
@@ -242,16 +278,26 @@ class MindTaskWindow(QMainWindow):
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(10)
 
+        header_row = QHBoxLayout()
+        header_row.setContentsMargins(0, 0, 0, 0)
         self.task_detail_title_label = self._section_label("")
-        layout.addWidget(self.task_detail_title_label)
+        self.close_detail_button = self._icon_button("", "fa6s.xmark", "X", self.close_task_detail)
+        header_row.addWidget(self.task_detail_title_label)
+        header_row.addStretch()
+        header_row.addWidget(self.close_detail_button)
+        layout.addLayout(header_row)
+
+        self.detail_animation = QPropertyAnimation(panel, b"maximumWidth", self)
+        self.detail_animation.setDuration(180)
+        self.detail_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.detail_animation_closes = False
 
         self.title_edit = QLineEdit()
         self.description_edit = QTextEdit()
         self.status_combo = QComboBox()
         self.priority_combo = QComboBox()
         self.project_combo = QComboBox()
-        self.due_edit = QLineEdit()
-        self.due_edit.setPlaceholderText("YYYY-MM-DD HH:MM:SS")
+        self.due_editor = DueDateEditor(due_day_end=self.due_day_end, language=self.language)
 
         for status, label in STATUS_LABELS.items():
             self.status_combo.addItem(label, status)
@@ -270,7 +316,7 @@ class MindTaskWindow(QMainWindow):
         form.addRow(self.status_label, self.status_combo)
         form.addRow(self.priority_label, self.priority_combo)
         form.addRow(self.project_label, self.project_combo)
-        form.addRow(self.due_label, self.due_edit)
+        form.addRow(self.due_label, self.due_editor)
         layout.addLayout(form)
 
         button_row = QHBoxLayout()
@@ -333,6 +379,9 @@ class MindTaskWindow(QMainWindow):
         self.projects_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self.projects_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self.projects_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        self.projects_table.horizontalHeader().setSectionsClickable(True)
+        self.projects_table.horizontalHeader().setSortIndicatorShown(True)
+        self.projects_table.horizontalHeader().sectionClicked.connect(self.sort_projects_by_column)
         self.projects_table.itemSelectionChanged.connect(self.update_project_buttons)
         layout.addWidget(self.projects_table, 1)
         return page
@@ -368,6 +417,14 @@ class MindTaskWindow(QMainWindow):
         self.language_combo.currentIndexChanged.connect(self.apply_language_from_combo)
         self.language_label = QLabel()
         form.addRow(self.language_label, self.language_combo)
+
+        self.due_day_end_combo = QComboBox()
+        for option in DUE_DAY_END_OPTIONS:
+            self.due_day_end_combo.addItem("", option)
+        self._set_due_day_end_combo(self.due_day_end)
+        self.due_day_end_combo.currentIndexChanged.connect(self.apply_due_day_end_from_combo)
+        self.due_day_end_label = QLabel()
+        form.addRow(self.due_day_end_label, self.due_day_end_combo)
 
         self.config_path_label = QLabel(self.config_path)
         self.config_path_label.setObjectName("MutedLabel")
@@ -422,6 +479,7 @@ class MindTaskWindow(QMainWindow):
         self.settings_nav_button.setText(self.tr("settings"))
 
         self.search_edit.setPlaceholderText(self.tr("search_tasks"))
+        self.clear_search_action.setToolTip(self.tr("clear_search"))
         self.sidebar_projects_label.setText(self.tr("projects"))
         self.tasks_title_label.setText(self.tr("tasks"))
         self.add_button.setToolTip(self.tr("new_task"))
@@ -430,9 +488,12 @@ class MindTaskWindow(QMainWindow):
         self.refresh_button.setAccessibleName(self.tr("refresh"))
         self.history_button.setToolTip(self.tr("history"))
         self.history_button.setAccessibleName(self.tr("history"))
+        self.close_detail_button.setToolTip(self.tr("close"))
+        self.close_detail_button.setAccessibleName(self.tr("close"))
         self.task_table.setHorizontalHeaderLabels(
             ["ID", self.tr("title"), self.tr("status"), self.tr("priority"), self.tr("project"), self.tr("due")]
         )
+        self._update_task_sort_indicator()
         self.empty_label.setText(self.tr("no_tasks"))
         self.task_detail_title_label.setText(self.tr("task_detail"))
         self.title_label.setText(f'{self.tr("title")} <span style="color:#dc2626;">*</span>')
@@ -452,10 +513,12 @@ class MindTaskWindow(QMainWindow):
         self.projects_table.setHorizontalHeaderLabels(
             ["ID", self.tr("name"), self.tr("tasks"), self.tr("active"), self.tr("completed")]
         )
+        self._update_project_sort_indicator()
 
         self.settings_title_label.setText(self.tr("settings"))
         self.theme_label.setText(self.tr("theme"))
         self.language_label.setText(self.tr("language"))
+        self.due_day_end_label.setText(self.tr("due_day_end"))
         self.config_file_label.setText(self.tr("config_file"))
         self.database_path_label.setText(self.tr("database_path"))
         self.apply_db_button.setText(self.tr("apply_database"))
@@ -464,6 +527,8 @@ class MindTaskWindow(QMainWindow):
         self.database_browse_button.setText(self.tr("browse"))
         self._retranslate_choice_controls()
         self._retranslate_theme_combo()
+        self._retranslate_due_day_end_combo()
+        self.due_editor.retranslate(self.language)
 
     def _retranslate_choice_controls(self) -> None:
         current_status = self.status_combo.currentData()
@@ -494,9 +559,31 @@ class MindTaskWindow(QMainWindow):
         if isinstance(current_theme, str):
             self._set_theme_combo(current_theme)
 
+    def _retranslate_due_day_end_combo(self) -> None:
+        current_value = self.due_day_end_combo.currentData()
+        self.due_day_end_combo.blockSignals(True)
+        for index in range(self.due_day_end_combo.count()):
+            value = self.due_day_end_combo.itemData(index)
+            self.due_day_end_combo.setItemText(
+                index,
+                self.tr(DUE_DAY_END_TRANSLATION_KEYS.get(value, "due_day_end_same_day")),
+            )
+        self.due_day_end_combo.blockSignals(False)
+        if isinstance(current_value, str):
+            self._set_due_day_end_combo(current_value)
+
     def refresh_all(self) -> None:
         self.refresh_projects()
         self.refresh_project_table()
+        self.refresh_tasks()
+
+    def update_search_clear_action(self) -> None:
+        self.clear_search_action.setVisible(bool(self.search_edit.text()) or bool(self.active_search_keyword))
+
+    def clear_search(self) -> None:
+        if not self.search_edit.text() and not self.active_search_keyword:
+            return
+        self.search_edit.clear()
         self.refresh_tasks()
 
     def switch_page(self, index: int) -> None:
@@ -554,7 +641,7 @@ class MindTaskWindow(QMainWindow):
         if not hasattr(self, "projects_table"):
             return
         selected_id = self._selected_project_management_id()
-        projects = self.db.get_project_summaries()
+        projects = self._sort_projects(self.db.get_project_summaries())
         self.projects_table.setRowCount(len(projects))
         for row, project in enumerate(projects):
             values = [
@@ -581,9 +668,46 @@ class MindTaskWindow(QMainWindow):
             self.projects_table.selectRow(0)
         self.update_project_buttons()
 
+    def sort_projects_by_column(self, column: int) -> None:
+        if column == self.project_sort_column:
+            self.project_sort_order = (
+                Qt.SortOrder.DescendingOrder
+                if self.project_sort_order == Qt.SortOrder.AscendingOrder
+                else Qt.SortOrder.AscendingOrder
+            )
+        else:
+            self.project_sort_column = column
+            self.project_sort_order = Qt.SortOrder.AscendingOrder
+        self._update_project_sort_indicator()
+        self.refresh_project_table()
+
+    def _update_project_sort_indicator(self) -> None:
+        if hasattr(self, "projects_table"):
+            self.projects_table.horizontalHeader().setSortIndicator(self.project_sort_column, self.project_sort_order)
+
+    def _sort_projects(self, projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        reverse = self.project_sort_order == Qt.SortOrder.DescendingOrder
+
+        def value_for(project: Dict[str, Any]) -> Any:
+            if self.project_sort_column == 0:
+                return project.get("id")
+            if self.project_sort_column == 1:
+                return (project.get("name") or "").casefold()
+            if self.project_sort_column == 2:
+                return project.get("task_count")
+            if self.project_sort_column == 3:
+                return project.get("active_task_count")
+            if self.project_sort_column == 4:
+                return project.get("completed_task_count")
+            return project.get("id")
+
+        return sorted(projects, key=lambda project: (value_for(project), project.get("id") or 0), reverse=reverse)
+
     def refresh_tasks(self) -> None:
         project_id = self._current_project_id()
         keyword = self.search_edit.text().strip()
+        self.active_search_keyword = keyword
+        self.update_search_clear_action()
         if keyword:
             tasks = self.db.search_tasks(keyword, limit=self.db.config.default_task_limit)
             if project_id is not None:
@@ -591,6 +715,7 @@ class MindTaskWindow(QMainWindow):
         else:
             tasks = self.db.get_tasks(project_id=project_id, limit=self.db.config.default_task_limit)
 
+        tasks = self._sort_tasks(tasks)
         self.tasks = tasks
         self.task_table.setRowCount(len(tasks))
         for row, task in enumerate(tasks):
@@ -624,11 +749,52 @@ class MindTaskWindow(QMainWindow):
         self.task_count_label.setText(self.tr("task_count", count=len(tasks)))
         self.task_stack.setCurrentWidget(self.task_table if tasks else self.empty_label)
         self.statusBar().showMessage(self.tr("task_count", count=len(tasks)))
-        if tasks:
-            self.task_table.selectRow(0)
+        if self.selected_task_id is not None and any(task["id"] == self.selected_task_id for task in tasks):
+            self._select_task(self.selected_task_id)
         else:
             self.selected_task_id = None
+            self._clear_task_selection()
             self._clear_detail_panel()
+            self.close_task_detail(clear_selection=False)
+
+    def sort_tasks_by_column(self, column: int) -> None:
+        if column == self.task_sort_column:
+            self.task_sort_order = (
+                Qt.SortOrder.DescendingOrder
+                if self.task_sort_order == Qt.SortOrder.AscendingOrder
+                else Qt.SortOrder.AscendingOrder
+            )
+        else:
+            self.task_sort_column = column
+            self.task_sort_order = Qt.SortOrder.AscendingOrder
+        self._update_task_sort_indicator()
+        self.refresh_tasks()
+
+    def _update_task_sort_indicator(self) -> None:
+        if hasattr(self, "task_table"):
+            self.task_table.horizontalHeader().setSortIndicator(self.task_sort_column, self.task_sort_order)
+
+    def _sort_tasks(self, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        reverse = self.task_sort_order == Qt.SortOrder.DescendingOrder
+
+        def value_for(task: Dict[str, Any]) -> Any:
+            if self.task_sort_column == 0:
+                return task.get("id")
+            if self.task_sort_column == 1:
+                return (task.get("title") or "").casefold()
+            if self.task_sort_column == 2:
+                return task.get("status")
+            if self.task_sort_column == 3:
+                return task.get("priority")
+            if self.task_sort_column == 4:
+                return (task.get("project_name") or "").casefold()
+            if self.task_sort_column == 5:
+                return task.get("due_date")
+            return task.get("id")
+
+        present = [task for task in tasks if value_for(task) not in {None, ""}]
+        missing = [task for task in tasks if value_for(task) in {None, ""}]
+        return sorted(present, key=value_for, reverse=reverse) + sorted(missing, key=lambda task: task.get("id") or 0)
 
     def load_selected_task(self) -> None:
         rows = self.task_table.selectionModel().selectedRows()
@@ -645,10 +811,54 @@ class MindTaskWindow(QMainWindow):
         self._set_status_combo(int(task.get("status") or 0))
         self._set_priority_combo(int(task.get("priority") or 0))
         self._set_project_combo(task.get("project_id"))
-        self.due_edit.setText(task.get("due_date") or "")
+        self.due_editor.set_due_value(task.get("due_date"))
+        self.open_task_detail()
+
+    def open_task_detail(self) -> None:
+        if not self.detail_panel.isHidden() and self.detail_panel.maximumWidth() > 0:
+            return
+        self.detail_animation.stop()
+        if self.detail_animation_closes:
+            self.detail_animation.finished.disconnect()
+            self.detail_animation_closes = False
+        self.detail_panel.show()
+        self.detail_panel.setMinimumWidth(DETAIL_PANEL_MIN_WIDTH)
+        self.detail_animation.setStartValue(max(0, self.detail_panel.maximumWidth()))
+        self.detail_animation.setEndValue(DETAIL_PANEL_WIDTH)
+        self.detail_animation.start()
+        self.tasks_splitter.setSizes([SIDEBAR_WIDTH, 620, DETAIL_PANEL_WIDTH])
+
+    def close_task_detail(self, clear_selection: bool = True) -> None:
+        if not hasattr(self, "detail_panel"):
+            return
+        if clear_selection:
+            self.selected_task_id = None
+            self._clear_task_selection()
+            self._clear_detail_panel()
+
+        if self.detail_panel.isHidden():
+            return
+
+        self.detail_animation.stop()
+        self.detail_animation.setStartValue(max(0, self.detail_panel.width()))
+        self.detail_animation.setEndValue(0)
+        if self.detail_animation_closes:
+            self.detail_animation.finished.disconnect()
+        self.detail_animation.finished.connect(self._hide_task_detail_after_animation)
+        self.detail_animation_closes = True
+        self.detail_animation.start()
+        self.tasks_splitter.setSizes([SIDEBAR_WIDTH, 960, 0])
+
+    def _hide_task_detail_after_animation(self) -> None:
+        self.detail_panel.hide()
+        self.detail_panel.setMaximumWidth(0)
+        self.detail_panel.setMinimumWidth(0)
+        if self.detail_animation_closes:
+            self.detail_animation.finished.disconnect()
+        self.detail_animation_closes = False
 
     def open_new_task_dialog(self) -> None:
-        dialog = TaskDialog(self.db.get_projects(), self.language, parent=self)
+        dialog = TaskDialog(self.db.get_projects(), self.language, self.due_day_end, parent=self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
 
@@ -740,7 +950,7 @@ class MindTaskWindow(QMainWindow):
         if self.selected_task_id is None:
             return
 
-        due_date = self.due_edit.text().strip() or None
+        due_date = self.due_editor.due_value()
         try:
             normalize_due_date(due_date)
         except ValueError as exc:
@@ -761,14 +971,14 @@ class MindTaskWindow(QMainWindow):
             return
 
         self.refresh_all()
-        self._select_task(self.selected_task_id)
+        self.close_task_detail()
 
     def complete_selected_task(self) -> None:
         if self.selected_task_id is None:
             return
         self.db.complete_task(self.selected_task_id)
         self.refresh_all()
-        self._select_task(self.selected_task_id)
+        self.close_task_detail()
 
     def delete_selected_task(self) -> None:
         if self.selected_task_id is None:
@@ -777,6 +987,7 @@ class MindTaskWindow(QMainWindow):
             return
         self.db.delete_task(self.selected_task_id)
         self.refresh_all()
+        self.close_task_detail()
 
     def undo_last_operation(self) -> None:
         history = self.db.undo_last_operation()
@@ -817,6 +1028,17 @@ class MindTaskWindow(QMainWindow):
             QMessageBox.warning(self, self.tr("language"), self.tr("could_not_save_language", error=exc))
         self.retranslate_ui()
         self.refresh_all()
+
+    def apply_due_day_end_from_combo(self) -> None:
+        due_day_end = self.due_day_end_combo.currentData()
+        if not isinstance(due_day_end, str):
+            return
+        self.due_day_end = due_day_end
+        self.due_editor.set_due_day_end(due_day_end)
+        try:
+            save_ui_due_day_end(due_day_end, self.config_path)
+        except Exception as exc:
+            QMessageBox.warning(self, self.tr("settings"), self.tr("could_not_save_due_day_end", error=exc))
 
     def _apply_theme_to_app(self, theme: str) -> None:
         app = QApplication.instance()
@@ -925,7 +1147,14 @@ class MindTaskWindow(QMainWindow):
         self.status_combo.setCurrentIndex(0)
         self.priority_combo.setCurrentIndex(0)
         self.project_combo.setCurrentIndex(0)
-        self.due_edit.clear()
+        self.due_editor.clear()
+
+    def _clear_task_selection(self) -> None:
+        selection_model = self.task_table.selectionModel()
+        if selection_model is not None:
+            selection_model.clearSelection()
+            selection_model.clearCurrentIndex()
+        self.task_table.clearSelection()
 
     def _set_status_combo(self, status: int) -> None:
         for index in range(self.status_combo.count()):
@@ -947,6 +1176,13 @@ class MindTaskWindow(QMainWindow):
                 self.theme_combo.setCurrentIndex(index)
                 return
         self.theme_combo.setCurrentIndex(0)
+
+    def _set_due_day_end_combo(self, due_day_end: str) -> None:
+        for index in range(self.due_day_end_combo.count()):
+            if self.due_day_end_combo.itemData(index) == due_day_end:
+                self.due_day_end_combo.setCurrentIndex(index)
+                return
+        self.due_day_end_combo.setCurrentIndex(0)
 
     def _set_project_combo(self, project_id: Optional[int]) -> None:
         for index in range(self.project_combo.count()):

@@ -6,6 +6,11 @@ THEME_TRANSLATION_KEYS = {
     "light": "theme_light",
 }
 
+DUE_DAY_END_TRANSLATION_KEYS = {
+    "same_day": "due_day_end_same_day",
+    "next_day_early_morning": "due_day_end_next_day",
+}
+
 STATUS_LABELS = {
     0: "not_started",
     1: "in_progress",

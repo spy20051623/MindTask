@@ -92,6 +92,7 @@ default_search_limit = 12
 [ui]
 theme = dark
 language = zh
+due_day_end = next_day_early_morning
 """.strip(),
         encoding="utf-8",
     )
@@ -107,6 +108,7 @@ language = zh
     assert config.default_search_limit == 12
     assert config.ui_theme == "dark"
     assert config.ui_language == "zh"
+    assert config.ui_due_day_end == "next_day_early_morning"
 
 
 def test_missing_config_requires_template(tmp_path, monkeypatch):

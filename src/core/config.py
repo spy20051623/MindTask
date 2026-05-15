@@ -24,6 +24,7 @@ class MindTaskConfig:
     default_search_limit: int = 20
     ui_theme: str = "system"
     ui_language: str = "en"
+    ui_due_day_end: str = "same_day"
 
 
 def resolve_project_path(value: str) -> str:
@@ -48,6 +49,9 @@ def load_config(config_path: Optional[str] = None) -> MindTaskConfig:
     ui_language = parser.get("ui", "language", fallback="en")
     if ui_language not in {"en", "zh"}:
         ui_language = "en"
+    ui_due_day_end = parser.get("ui", "due_day_end", fallback="same_day")
+    if ui_due_day_end not in {"same_day", "next_day_early_morning"}:
+        ui_due_day_end = "same_day"
 
     return MindTaskConfig(
         database_path=resolve_project_path(database_path),
@@ -56,7 +60,37 @@ def load_config(config_path: Optional[str] = None) -> MindTaskConfig:
         default_search_limit=default_search_limit,
         ui_theme=ui_theme,
         ui_language=ui_language,
+        ui_due_day_end=ui_due_day_end,
     )
+
+
+def _read_writable_config(config_path: Optional[str] = None) -> tuple[Path, configparser.ConfigParser]:
+    path = ensure_config_exists(config_path)
+    parser = configparser.ConfigParser()
+    if path.exists():
+        parser.read(path, encoding="utf-8-sig")
+
+    if "database" not in parser:
+        parser["database"] = {}
+    if "app" not in parser:
+        parser["app"] = {}
+    if "ui" not in parser:
+        parser["ui"] = {}
+
+    parser["database"].setdefault("path", "data/mindtask.db")
+    parser["database"].pop("schema", None)
+    parser["app"].setdefault("default_task_limit", "100")
+    parser["app"].setdefault("default_search_limit", "20")
+    parser["ui"].setdefault("theme", "system")
+    parser["ui"].setdefault("language", "en")
+    parser["ui"].setdefault("due_day_end", "same_day")
+    return path, parser
+
+
+def _write_config(path: Path, parser: configparser.ConfigParser) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as fh:
+        parser.write(fh)
 
 
 def get_config_path(config_path: Optional[str] = None) -> Path:
@@ -86,81 +120,33 @@ def ensure_config_exists(config_path: Optional[str] = None) -> Path:
 
 
 def save_database_path(database_path: str, config_path: Optional[str] = None) -> None:
-    path = ensure_config_exists(config_path)
-    parser = configparser.ConfigParser()
-    if path.exists():
-        parser.read(path, encoding="utf-8-sig")
-
-    if "database" not in parser:
-        parser["database"] = {}
-    if "app" not in parser:
-        parser["app"] = {}
-    if "ui" not in parser:
-        parser["ui"] = {}
-
+    path, parser = _read_writable_config(config_path)
     parser["database"]["path"] = database_path
-    parser["database"].pop("schema", None)
-    parser["app"].setdefault("default_task_limit", "100")
-    parser["app"].setdefault("default_search_limit", "20")
-    parser["ui"].setdefault("theme", "system")
-    parser["ui"].setdefault("language", "en")
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as fh:
-        parser.write(fh)
+    _write_config(path, parser)
 
 
 def save_ui_theme(theme: str, config_path: Optional[str] = None) -> None:
     if theme not in {"system", "light", "dark"}:
         raise ValueError("theme must be system, light, or dark")
 
-    path = ensure_config_exists(config_path)
-    parser = configparser.ConfigParser()
-    if path.exists():
-        parser.read(path, encoding="utf-8-sig")
-
-    if "database" not in parser:
-        parser["database"] = {}
-    if "app" not in parser:
-        parser["app"] = {}
-    if "ui" not in parser:
-        parser["ui"] = {}
-
-    parser["database"].setdefault("path", "data/mindtask.db")
-    parser["database"].pop("schema", None)
-    parser["app"].setdefault("default_task_limit", "100")
-    parser["app"].setdefault("default_search_limit", "20")
+    path, parser = _read_writable_config(config_path)
     parser["ui"]["theme"] = theme
-    parser["ui"].setdefault("language", "en")
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as fh:
-        parser.write(fh)
+    _write_config(path, parser)
 
 
 def save_ui_language(language: str, config_path: Optional[str] = None) -> None:
     if language not in {"en", "zh"}:
         raise ValueError("language must be en or zh")
 
-    path = ensure_config_exists(config_path)
-    parser = configparser.ConfigParser()
-    if path.exists():
-        parser.read(path, encoding="utf-8-sig")
-
-    if "database" not in parser:
-        parser["database"] = {}
-    if "app" not in parser:
-        parser["app"] = {}
-    if "ui" not in parser:
-        parser["ui"] = {}
-
-    parser["database"].setdefault("path", "data/mindtask.db")
-    parser["database"].pop("schema", None)
-    parser["app"].setdefault("default_task_limit", "100")
-    parser["app"].setdefault("default_search_limit", "20")
-    parser["ui"].setdefault("theme", "system")
+    path, parser = _read_writable_config(config_path)
     parser["ui"]["language"] = language
+    _write_config(path, parser)
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as fh:
-        parser.write(fh)
+
+def save_ui_due_day_end(value: str, config_path: Optional[str] = None) -> None:
+    if value not in {"same_day", "next_day_early_morning"}:
+        raise ValueError("due day end must be same_day or next_day_early_morning")
+
+    path, parser = _read_writable_config(config_path)
+    parser["ui"]["due_day_end"] = value
+    _write_config(path, parser)

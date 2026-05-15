@@ -16,6 +16,12 @@ Update it immediately before creating a release commit, not after every local ch
 
 ## Entries
 
+## 1.1.3 - 2026-05-15
+
+- Summary: Improve desktop task editing ergonomics and table navigation.
+- Changed: Added reusable date/time picker controls for task due dates, configurable date-only due times, half-hour time suggestions with editable precise times, automatic due mode switching from date/time focus, wider task detail drawer defaults, sortable task and project tables, and clearer search reset behavior.
+- Verified: Ran Python compile checks, whitespace checks, CLI version check, config due-time checks, and offscreen desktop UI smoke checks for due-date editing, task dialogs, search reset, and task/project table sorting.
+
 ## 1.1.2 - 2026-05-14
 
 - Summary: Prepare first-run configuration and clean up desktop UI module structure.
