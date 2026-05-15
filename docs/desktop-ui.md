@@ -88,6 +88,7 @@ Creating a database requires entering a path that does not already exist and cli
 Shortcuts are active while the MindTask window has focus.
 They can be changed from Settings. The saved values are stored in the config file under `[shortcuts]`.
 Shortcut rows show a focused state while editing and a separate modified state before changes are saved. Each row can be restored to its saved value or reset to the default value, and the Settings page also includes a reset-all-defaults action. Mouse clicks only focus a shortcut field; shortcut recording uses keyboard input.
+Shortcut rows turn red when a shortcut is duplicated or may conflict with normal text input. Single-key shortcuts are limited to `Esc` and `F1` through `F12`; other keys require `Ctrl`, `Alt`, or `Meta`.
 
 - `Ctrl+1`: Open Tasks
 - `Ctrl+2`: Open Projects
@@ -96,7 +97,7 @@ Shortcut rows show a focused state while editing and a separate modified state b
 - `Ctrl+F`: Focus task search from the Tasks page
 - `Esc`: Close task details first; if details are closed, clear active search
 - `F5`: Refresh data
-- `Ctrl+Z`: Undo the latest operation
+- `Ctrl+U`: Undo the latest operation
 - `Ctrl+H`: Open operation history
 - `Ctrl+S`: Save the open task details
 - `Ctrl+Enter`: Complete the open task

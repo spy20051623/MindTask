@@ -203,6 +203,14 @@ QFrame#ShortcutRow[shortcutModified="true"] {{
     background: {"#fffbeb" if resolved == THEME_LIGHT else "#3f3420"};
     border: 1px solid {"#d97706" if resolved == THEME_LIGHT else "#b7791f"};
 }}
+QFrame#ShortcutRow[shortcutDuplicate="true"] {{
+    background: {"#fee2e2" if resolved == THEME_LIGHT else "#4a2424"};
+    border: 1px solid {colors["danger"]};
+}}
+QFrame#ShortcutRow[shortcutInvalid="true"] {{
+    background: {"#fee2e2" if resolved == THEME_LIGHT else "#4a2424"};
+    border: 1px solid {colors["danger"]};
+}}
 QLabel#EmptyState {{
     color: {colors["muted_text"]};
     background: {colors["input_bg"]};

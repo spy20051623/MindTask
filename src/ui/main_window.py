@@ -48,6 +48,7 @@ from .project_page import ProjectPageMixin
 from .settings_page import SettingsPageMixin
 from .style import build_app_style, colors_for_theme
 from .task_page import TaskPageMixin
+from .shortcut_editor import SHIFTED_KEY_ALIASES
 
 
 DETAIL_PANEL_MIN_WIDTH = 420
@@ -127,13 +128,51 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         self.shortcuts: List[QShortcut] = []
         for action, handler in handlers.items():
             sequence = self.shortcut_sequences.get(action, "")
-            key_sequence = QKeySequence(sequence)
-            if key_sequence.isEmpty():
-                continue
-            shortcut = QShortcut(QKeySequence(sequence), self)
-            shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
-            shortcut.activated.connect(handler)
-            self.shortcuts.append(shortcut)
+            for key_sequence in self._shortcut_key_sequences(sequence):
+                shortcut = QShortcut(key_sequence, self)
+                shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+                shortcut.activated.connect(handler)
+                self.shortcuts.append(shortcut)
+        if getattr(self, "shortcut_active_rows", set()):
+            for shortcut in self.shortcuts:
+                shortcut.setEnabled(False)
+
+    def _shortcut_key_sequences(self, sequence: str) -> List[QKeySequence]:
+        key_sequence = QKeySequence(sequence)
+        if key_sequence.isEmpty():
+            return []
+
+        sequences = [key_sequence]
+        portable_text = key_sequence.toString(QKeySequence.SequenceFormat.PortableText)
+        alias = self._enter_shortcut_alias(portable_text)
+        if alias:
+            sequences.append(QKeySequence(alias))
+        shifted_alias = self._shifted_shortcut_alias(portable_text)
+        if shifted_alias:
+            sequences.append(QKeySequence(shifted_alias))
+        return sequences
+
+    def _enter_shortcut_alias(self, portable_text: str) -> str:
+        parts = portable_text.split("+")
+        if not parts:
+            return ""
+        if parts[-1] == "Enter":
+            return "+".join([*parts[:-1], "Return"])
+        if parts[-1] == "Return":
+            return "+".join([*parts[:-1], "Enter"])
+        return ""
+
+    def _shifted_shortcut_alias(self, portable_text: str) -> str:
+        parts = portable_text.split("+")
+        if "Shift" not in parts[:-1]:
+            return ""
+        key_text = parts[-1]
+        for shifted_key, base_key in SHIFTED_KEY_ALIASES.items():
+            base_text = QKeySequence(base_key).toString(QKeySequence.SequenceFormat.PortableText)
+            if key_text == base_text:
+                shifted_text = QKeySequence(shifted_key).toString(QKeySequence.SequenceFormat.PortableText)
+                return "+".join([*parts[:-1], shifted_text])
+        return ""
 
     def _build_bottom_navigation(self) -> QWidget:
         panel = QFrame()
