@@ -13,8 +13,8 @@ from .shortcut_editor import ShortcutKeySequenceEdit
 
 SHORTCUT_ACTIONS = (
     ("open_tasks", "shortcut_open_tasks"),
-    ("open_projects", "shortcut_open_projects"),
     ("open_settings", "shortcut_open_settings"),
+    ("open_projects", "shortcut_open_projects"),
     ("new_task", "shortcut_new_task_label"),
     ("focus_search", "shortcut_focus_search"),
     ("escape_tasks", "shortcut_escape_tasks"),

@@ -26,21 +26,20 @@ python MindTask_ui.py --config path/to/mindtask.ini
 
 ## Current Layout
 
-The UI uses a page-based desktop layout with bottom navigation so new features can be added without crowding the task workspace.
+The UI uses a compact desktop layout with bottom navigation for primary pages and slide-out panels for supporting workflows.
 
 Current pages:
 
 - Tasks
-- Projects
 - Settings
 
-The Tasks page uses a three-panel layout:
+The Tasks page uses a task-focused layout:
 
 - Left: project navigation
 - Center: task table with search
 - Right: selected task detail editor
 
-The Projects page lists project task counts and supports:
+The project management panel opens from a small task-sidebar action and slides in from the right side of the task workspace. It supports:
 
 - Creating projects
 - Renaming projects
@@ -56,14 +55,15 @@ The current visual style is a restrained desktop tool layout with compact panels
 
 The Settings page includes:
 
-- General settings: theme selection, language selection, and latest work time for all-day due dates
-- Data settings: active config file path, database path, and database creation with sample projects and tasks
+- General settings: theme selection and language selection
+- Data settings: current database reload, switching to an existing database, and creating a new database with sample projects and tasks
 - Keyboard shortcut settings
+- About settings: app version, config file path, and active database path
 
 The default theme is `system`, which follows the operating system color scheme when Qt can detect it.
 Theme selection is saved to the active config file under `ui.theme`.
 The default language is `en`. Language selection is saved to the active config file under `ui.language`.
-The default latest work time for all-day due dates is `same_day`, which stores all-day task due dates as `23:59:59` on the selected date. Users who treat late-night work as part of the previous day can choose `next_day_early_morning`, which stores all-day due dates as `04:59:59` on the next day.
+All-day task due dates are stored with `due_mode = all_day` and `due_date` at `00:00:00` on the selected date.
 
 Changing the database path requires clicking `Apply Database`. MindTask first attempts to open and read the database at the new path. The active config and UI data source are updated only after that check succeeds.
 
@@ -91,8 +91,8 @@ Shortcut rows show a focused state while editing and a separate modified state b
 Shortcut rows turn red when a shortcut is duplicated or may conflict with normal text input. Single-key shortcuts are limited to `Esc` and `F1` through `F12`; other keys require `Ctrl`, `Alt`, or `Meta`.
 
 - `Ctrl+1`: Open Tasks
-- `Ctrl+2`: Open Projects
-- `Ctrl+3`: Open Settings
+- `Ctrl+2`: Open Settings
+- `Ctrl+P`: Open or close project management
 - `Ctrl+N`: Create a task from the Tasks page
 - `Ctrl+F`: Focus task search from the Tasks page
 - `Esc`: Close task details first; if details are closed, clear active search

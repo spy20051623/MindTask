@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -24,22 +25,22 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .. import __version__
 from ..core import (
     MindTaskDB,
     save_database_path,
-    save_ui_due_day_end,
     save_ui_language,
     save_ui_theme,
 )
-from .constants import DUE_DAY_END_TRANSLATION_KEYS, THEME_TRANSLATION_KEYS
+from .constants import THEME_TRANSLATION_KEYS
 from .dialog_helpers import confirm_question
-from .due_date_editor import DUE_DAY_END_OPTIONS
 from .i18n import LANGUAGE_LABELS, LANGUAGE_OPTIONS
 from .shortcut_settings import ShortcutSettingsMixin
 from .style import THEME_OPTIONS
 
 
 SIDEBAR_WIDTH = 220
+
 
 class SettingsPageMixin(ShortcutSettingsMixin):
     """Mixin for settings UI layout and settings-specific commands."""
@@ -79,10 +80,12 @@ class SettingsPageMixin(ShortcutSettingsMixin):
         general_panel = self._build_general_settings_panel()
         database_panel = self._build_database_settings_panel()
         shortcut_panel = self._build_shortcut_settings_panel()
+        about_panel = self._build_about_settings_panel()
 
         self.settings_stack.addWidget(self._settings_scroll_area(general_panel))
         self.settings_stack.addWidget(self._settings_scroll_area(database_panel))
         self.settings_stack.addWidget(self._settings_scroll_area(shortcut_panel))
+        self.settings_stack.addWidget(self._settings_scroll_area(about_panel))
         self.settings_section_list.setCurrentRow(0)
         return page
 
@@ -113,13 +116,6 @@ class SettingsPageMixin(ShortcutSettingsMixin):
         self.language_label = QLabel()
         form.addRow(self.language_label, self.language_combo)
 
-        self.due_day_end_combo = QComboBox()
-        for option in DUE_DAY_END_OPTIONS:
-            self.due_day_end_combo.addItem("", option)
-        self._set_due_day_end_combo(self.due_day_end)
-        self.due_day_end_combo.currentIndexChanged.connect(self.apply_due_day_end_from_combo)
-        self.due_day_end_label = QLabel()
-        form.addRow(self.due_day_end_label, self.due_day_end_combo)
         layout.addLayout(form)
         layout.addStretch()
         return panel
@@ -131,13 +127,35 @@ class SettingsPageMixin(ShortcutSettingsMixin):
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
-        form = QFormLayout()
         self.data_settings_title_label = self._section_label("")
         layout.addWidget(self.data_settings_title_label)
-        self.config_path_label = QLabel(self.config_path)
-        self.config_path_label.setObjectName("MutedLabel")
-        self.config_file_label = QLabel()
-        form.addRow(self.config_file_label, self.config_path_label)
+
+        current_form = QFormLayout()
+        self.current_database_title_label = self._section_label("")
+        layout.addWidget(self.current_database_title_label)
+        self.current_database_path_label = QLabel()
+        self.current_database_path_value_label = QLabel(self.db.db_path)
+        self.current_database_path_value_label.setObjectName("MutedLabel")
+        self.current_database_path_value_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.current_database_path_value_label.setWordWrap(True)
+        current_form.addRow(self.current_database_path_label, self.current_database_path_value_label)
+        layout.addLayout(current_form)
+
+        current_button_row = QHBoxLayout()
+        self.reload_db_button = QPushButton()
+        self.reload_db_button.setObjectName("SecondaryButton")
+        self.reload_db_button.clicked.connect(self.reload_current_database)
+        current_button_row.addWidget(self.reload_db_button)
+        self.reload_database_message = QLabel("")
+        self.reload_database_message.setObjectName("MutedLabel")
+        self.reload_database_message.hide()
+        current_button_row.addWidget(self.reload_database_message)
+        current_button_row.addStretch()
+        layout.addLayout(current_button_row)
+
+        switch_form = QFormLayout()
+        self.switch_database_title_label = self._section_label("")
+        layout.addWidget(self.switch_database_title_label)
 
         self.database_path_edit = QLineEdit(self.db.db_path)
         self.database_browse_button = QPushButton()
@@ -150,27 +168,88 @@ class SettingsPageMixin(ShortcutSettingsMixin):
         database_path_layout.addWidget(self.database_path_edit, 1)
         database_path_layout.addWidget(self.database_browse_button)
         self.database_path_label = QLabel()
-        form.addRow(self.database_path_label, database_path_row)
-        layout.addLayout(form)
+        switch_form.addRow(self.database_path_label, database_path_row)
+        layout.addLayout(switch_form)
 
-        button_row = QHBoxLayout()
+        switch_button_row = QHBoxLayout()
         self.apply_db_button = QPushButton()
+        self.apply_db_button.setObjectName("SecondaryButton")
         self.apply_db_button.clicked.connect(self.apply_database_path)
+        switch_button_row.addWidget(self.apply_db_button)
+        self.switch_database_message = QLabel("")
+        self.switch_database_message.setObjectName("MutedLabel")
+        self.switch_database_message.hide()
+        switch_button_row.addWidget(self.switch_database_message)
+        switch_button_row.addStretch()
+        layout.addLayout(switch_button_row)
+
+        new_form = QFormLayout()
+        self.new_database_title_label = self._section_label("")
+        layout.addWidget(self.new_database_title_label)
+        self.new_database_path_edit = QLineEdit()
+        self.new_database_browse_button = QPushButton()
+        self.new_database_browse_button.clicked.connect(self.browse_new_database_path)
+        new_database_path_row = QWidget()
+        new_database_path_row.setObjectName("TransparentRow")
+        new_database_path_layout = QHBoxLayout(new_database_path_row)
+        new_database_path_layout.setContentsMargins(0, 0, 0, 0)
+        new_database_path_layout.setSpacing(8)
+        new_database_path_layout.addWidget(self.new_database_path_edit, 1)
+        new_database_path_layout.addWidget(self.new_database_browse_button)
+        self.new_database_path_label = QLabel()
+        new_form.addRow(self.new_database_path_label, new_database_path_row)
+        layout.addLayout(new_form)
+
+        new_button_row = QHBoxLayout()
         self.create_db_button = QPushButton()
         self.create_db_button.setObjectName("SecondaryButton")
         self.create_db_button.clicked.connect(self.create_database_from_settings)
-        self.reload_db_button = QPushButton()
-        self.reload_db_button.setObjectName("SecondaryButton")
-        self.reload_db_button.clicked.connect(self.reload_current_database)
-        button_row.addWidget(self.apply_db_button)
-        button_row.addWidget(self.create_db_button)
-        button_row.addWidget(self.reload_db_button)
-        self.database_message = QLabel("")
-        self.database_message.setObjectName("MutedLabel")
-        self.database_message.hide()
-        button_row.addWidget(self.database_message)
-        button_row.addStretch()
-        layout.addLayout(button_row)
+        new_button_row.addWidget(self.create_db_button)
+        self.new_database_message = QLabel("")
+        self.new_database_message.setObjectName("MutedLabel")
+        self.new_database_message.hide()
+        new_button_row.addWidget(self.new_database_message)
+        new_button_row.addStretch()
+        layout.addLayout(new_button_row)
+
+        layout.addStretch()
+        return panel
+
+    def _build_about_settings_panel(self) -> QFrame:
+        panel = QFrame()
+        panel.setObjectName("DetailPanel")
+        panel.setSizePolicy(self.expanding_size_policy())
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+        form = QFormLayout()
+        self.about_settings_title_label = self._section_label("")
+        layout.addWidget(self.about_settings_title_label)
+
+        self.about_app_label = QLabel()
+        self.about_app_value_label = QLabel("MindTask")
+        self.about_version_label = QLabel()
+        self.about_version_value_label = QLabel(__version__)
+        self.about_config_file_label = QLabel()
+        self.about_config_file_value_label = QLabel(self.config_path)
+        self.about_database_path_label = QLabel()
+        self.about_database_path_value_label = QLabel(self.db.db_path)
+
+        for value_label in (
+            self.about_app_value_label,
+            self.about_version_value_label,
+            self.about_config_file_value_label,
+            self.about_database_path_value_label,
+        ):
+            value_label.setObjectName("MutedLabel")
+            value_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            value_label.setWordWrap(True)
+
+        form.addRow(self.about_app_label, self.about_app_value_label)
+        form.addRow(self.about_version_label, self.about_version_value_label)
+        form.addRow(self.about_config_file_label, self.about_config_file_value_label)
+        form.addRow(self.about_database_path_label, self.about_database_path_value_label)
+        layout.addLayout(form)
         layout.addStretch()
         return panel
 
@@ -196,18 +275,28 @@ class SettingsPageMixin(ShortcutSettingsMixin):
         self._retranslate_settings_sections()
         self.general_settings_title_label.setText(self.tr("settings_general"))
         self.data_settings_title_label.setText(self.tr("settings_data"))
+        self.about_settings_title_label.setText(self.tr("settings_about"))
+        self.about_app_label.setText(self.tr("application"))
+        self.about_version_label.setText(self.tr("version"))
+        self.about_config_file_label.setText(self.tr("config_file"))
+        self.about_database_path_label.setText(self.tr("database_path"))
+        self.current_database_title_label.setText(self.tr("current_database"))
+        self.current_database_path_label.setText(self.tr("database_path"))
+        self.switch_database_title_label.setText(self.tr("switch_database"))
+        self.new_database_title_label.setText(self.tr("new_database"))
         self.theme_label.setText(self.tr("theme"))
         self.language_label.setText(self.tr("language"))
-        self.due_day_end_label.setText(self.tr("due_day_end"))
         self.retranslate_shortcut_settings()
-        self.config_file_label.setText(self.tr("config_file"))
         self.database_path_label.setText(self.tr("database_path"))
+        self.new_database_path_label.setText(self.tr("new_database_path"))
         self.apply_db_button.setText(self.tr("apply_database"))
         self.create_db_button.setText(self.tr("create_database"))
         self.reload_db_button.setText(self.tr("reload_current"))
         self.database_browse_button.setText(self.tr("browse"))
+        self.new_database_browse_button.setText(self.tr("browse"))
         self._retranslate_theme_combo()
-        self._retranslate_due_day_end_combo()
+        self._refresh_about_settings_info()
+        self._refresh_data_settings_info()
 
     def _retranslate_theme_combo(self) -> None:
         current_theme = self.theme_combo.currentData()
@@ -219,25 +308,13 @@ class SettingsPageMixin(ShortcutSettingsMixin):
         if isinstance(current_theme, str):
             self._set_theme_combo(current_theme)
 
-    def _retranslate_due_day_end_combo(self) -> None:
-        current_value = self.due_day_end_combo.currentData()
-        self.due_day_end_combo.blockSignals(True)
-        for index in range(self.due_day_end_combo.count()):
-            value = self.due_day_end_combo.itemData(index)
-            self.due_day_end_combo.setItemText(
-                index,
-                self.tr(DUE_DAY_END_TRANSLATION_KEYS.get(value, "due_day_end_same_day")),
-            )
-        self.due_day_end_combo.blockSignals(False)
-        if isinstance(current_value, str):
-            self._set_due_day_end_combo(current_value)
-
     def _retranslate_settings_sections(self) -> None:
         current_row = max(0, self.settings_section_list.currentRow())
         labels = [
             self.tr("settings_general"),
             self.tr("settings_data"),
             self.tr("keyboard_shortcuts"),
+            self.tr("settings_about"),
         ]
         self.settings_section_list.blockSignals(True)
         self.settings_section_list.clear()
@@ -284,17 +361,6 @@ class SettingsPageMixin(ShortcutSettingsMixin):
         self.retranslate_ui()
         self.refresh_all()
 
-    def apply_due_day_end_from_combo(self) -> None:
-        due_day_end = self.due_day_end_combo.currentData()
-        if not isinstance(due_day_end, str):
-            return
-        self.due_day_end = due_day_end
-        self.due_editor.set_due_day_end(due_day_end)
-        try:
-            save_ui_due_day_end(due_day_end, self.config_path)
-        except Exception as exc:
-            QMessageBox.warning(self, self.tr("settings"), self.tr("could_not_save_due_day_end", error=exc))
-
     def apply_database_path(self) -> None:
         database_path = self.database_path_edit.text().strip()
         if not database_path:
@@ -312,7 +378,9 @@ class SettingsPageMixin(ShortcutSettingsMixin):
             save_database_path(database_path, self.config_path)
             self.db = MindTaskDB(config_path=self.config_path)
             self.database_path_edit.setText(self.db.db_path)
-            self.show_inline_message(self.database_message, self.tr("database_updated"))
+            self._refresh_about_settings_info()
+            self._refresh_data_settings_info()
+            self.show_inline_message(self.switch_database_message, self.tr("database_updated"))
             self.refresh_all()
         except Exception as exc:
             QMessageBox.warning(self, self.tr("database"), self.tr("database_opened_config_failed", error=exc))
@@ -328,10 +396,21 @@ class SettingsPageMixin(ShortcutSettingsMixin):
         if path:
             self.database_path_edit.setText(path)
 
+    def browse_new_database_path(self) -> None:
+        current = self.new_database_path_edit.text().strip() or str(Path(self.db.db_path).with_name("mindtask-new.db"))
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            self.tr("create_new_database"),
+            current,
+            "SQLite (*.db *.sqlite *.sqlite3);;All files (*)",
+        )
+        if path:
+            self.new_database_path_edit.setText(path)
+
     def create_database_from_settings(self) -> None:
-        database_path = self.database_path_edit.text().strip()
+        database_path = self.new_database_path_edit.text().strip()
         if not database_path:
-            QMessageBox.warning(self, self.tr("database"), self.tr("database_path_required"))
+            QMessageBox.warning(self, self.tr("database"), self.tr("new_database_required"))
             return
 
         target = Path(database_path)
@@ -355,7 +434,10 @@ class SettingsPageMixin(ShortcutSettingsMixin):
             save_database_path(str(target), self.config_path)
             self.db = MindTaskDB(config_path=self.config_path)
             self.database_path_edit.setText(self.db.db_path)
-            self.show_inline_message(self.database_message, self.tr("database_created"))
+            self.new_database_path_edit.clear()
+            self._refresh_about_settings_info()
+            self._refresh_data_settings_info()
+            self.show_inline_message(self.new_database_message, self.tr("database_created"))
             self.refresh_all()
         except Exception as exc:
             QMessageBox.warning(self, self.tr("database"), self.tr("could_not_create_database", error=exc))
@@ -364,7 +446,9 @@ class SettingsPageMixin(ShortcutSettingsMixin):
         try:
             self.db = MindTaskDB(config_path=self.config_path)
             self.database_path_edit.setText(self.db.db_path)
-            self.show_inline_message(self.database_message, self.tr("database_reloaded"))
+            self._refresh_about_settings_info()
+            self._refresh_data_settings_info()
+            self.show_inline_message(self.reload_database_message, self.tr("database_reloaded"))
             self.refresh_all()
         except Exception as exc:
             QMessageBox.warning(self, self.tr("database"), self.tr("could_not_reload_database", error=exc))
@@ -383,3 +467,15 @@ class SettingsPageMixin(ShortcutSettingsMixin):
             return MindTaskDB(config_path=temp_config_path)
         finally:
             Path(temp_config_path).unlink(missing_ok=True)
+
+    def _refresh_about_settings_info(self) -> None:
+        if not hasattr(self, "about_config_file_value_label"):
+            return
+        self.about_version_value_label.setText(__version__)
+        self.about_config_file_value_label.setText(self.config_path)
+        self.about_database_path_value_label.setText(self.db.db_path)
+
+    def _refresh_data_settings_info(self) -> None:
+        if not hasattr(self, "current_database_path_value_label"):
+            return
+        self.current_database_path_value_label.setText(self.db.db_path)

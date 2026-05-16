@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     priority INTEGER DEFAULT 0 CHECK (priority BETWEEN 0 AND 3),
     status INTEGER DEFAULT 0 CHECK (status BETWEEN 0 AND 3),
     due_date TIMESTAMP,
+    due_mode TEXT DEFAULT 'none' CHECK (due_mode IN ('none', 'all_day', 'exact_time')),
     completed_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -98,6 +99,7 @@ SELECT
         ELSE 'Unknown'
     END AS status_text,
     t.due_date,
+    t.due_mode,
     t.completed_at,
     t.created_at,
     t.updated_at
@@ -129,6 +131,7 @@ SELECT
         ELSE 'Unknown'
     END AS status_text,
     t.due_date,
+    t.due_mode,
     t.completed_at,
     t.created_at,
     t.updated_at,

@@ -16,8 +16,8 @@ DEFAULT_CONFIG_TEMPLATE_PATH = PROJECT_ROOT / "config" / "mindtask.ini.template"
 DEFAULT_SCHEMA_PATH = PROJECT_ROOT / "sql" / "mindtask_db_schema.sql"
 DEFAULT_UI_SHORTCUTS = {
     "open_tasks": "Ctrl+1",
-    "open_projects": "Ctrl+2",
-    "open_settings": "Ctrl+3",
+    "open_settings": "Ctrl+2",
+    "open_projects": "Ctrl+P",
     "new_task": "Ctrl+N",
     "focus_search": "Ctrl+F",
     "escape_tasks": "Esc",
@@ -38,7 +38,6 @@ class MindTaskConfig:
     default_search_limit: int = 20
     ui_theme: str = "system"
     ui_language: str = "en"
-    ui_due_day_end: str = "same_day"
     ui_shortcuts: Dict[str, str] = field(default_factory=lambda: dict(DEFAULT_UI_SHORTCUTS))
 
 
@@ -64,9 +63,6 @@ def load_config(config_path: Optional[str] = None) -> MindTaskConfig:
     ui_language = parser.get("ui", "language", fallback="en")
     if ui_language not in {"en", "zh"}:
         ui_language = "en"
-    ui_due_day_end = parser.get("ui", "due_day_end", fallback="same_day")
-    if ui_due_day_end not in {"same_day", "next_day_early_morning"}:
-        ui_due_day_end = "same_day"
     ui_shortcuts = {
         action: parser.get("shortcuts", action, fallback=default_sequence).strip()
         for action, default_sequence in DEFAULT_UI_SHORTCUTS.items()
@@ -79,7 +75,6 @@ def load_config(config_path: Optional[str] = None) -> MindTaskConfig:
         default_search_limit=default_search_limit,
         ui_theme=ui_theme,
         ui_language=ui_language,
-        ui_due_day_end=ui_due_day_end,
         ui_shortcuts=ui_shortcuts,
     )
 
@@ -105,7 +100,7 @@ def _read_writable_config(config_path: Optional[str] = None) -> tuple[Path, conf
     parser["app"].setdefault("default_search_limit", "20")
     parser["ui"].setdefault("theme", "system")
     parser["ui"].setdefault("language", "en")
-    parser["ui"].setdefault("due_day_end", "same_day")
+    parser["ui"].pop("due_day_end", None)
     for action, sequence in DEFAULT_UI_SHORTCUTS.items():
         parser["shortcuts"].setdefault(action, sequence)
     return path, parser
@@ -164,15 +159,6 @@ def save_ui_language(language: str, config_path: Optional[str] = None) -> None:
 
     path, parser = _read_writable_config(config_path)
     parser["ui"]["language"] = language
-    _write_config(path, parser)
-
-
-def save_ui_due_day_end(value: str, config_path: Optional[str] = None) -> None:
-    if value not in {"same_day", "next_day_early_morning"}:
-        raise ValueError("due day end must be same_day or next_day_early_morning")
-
-    path, parser = _read_writable_config(config_path)
-    parser["ui"]["due_day_end"] = value
     _write_config(path, parser)
 
 

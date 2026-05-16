@@ -28,22 +28,37 @@ class ProjectPageMixin:
     """Mixin for project management table layout and commands."""
 
     def _build_projects_page(self) -> QWidget:
-        page = QWidget()
+        return self._build_project_management_panel()
+
+    def _build_project_drawer(self) -> QFrame:
+        panel = self._build_project_management_panel()
+        panel.setObjectName("DetailPanel")
+        return panel
+
+    def _build_project_management_panel(self) -> QFrame:
+        page = QFrame()
+        page.setObjectName("DetailPanel")
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(12)
 
         header = QWidget()
+        header.setObjectName("TransparentRow")
         header_row = QHBoxLayout(header)
         header_row.setContentsMargins(0, 0, 0, 0)
         header_row.setSpacing(8)
         self.projects_title_label = self._section_label("")
         header_row.addWidget(self.projects_title_label)
-        self.project_count_label = QLabel()
-        self.project_count_label.setObjectName("MutedLabel")
         header_row.addStretch()
-        header_row.addWidget(self.project_count_label)
+        self.close_projects_drawer_button = self._icon_button("", "fa6s.xmark", "X", self.close_projects_drawer)
+        header_row.addWidget(self.close_projects_drawer_button)
+        layout.addWidget(header)
 
+        actions = QWidget()
+        actions.setObjectName("TransparentRow")
+        actions_row = QHBoxLayout(actions)
+        actions_row.setContentsMargins(0, 0, 0, 0)
+        actions_row.setSpacing(8)
         self.new_project_button = QPushButton()
         self.new_project_button.clicked.connect(self.open_new_project_dialog)
         self.rename_project_button = QPushButton()
@@ -52,10 +67,14 @@ class ProjectPageMixin:
         self.delete_project_button = QPushButton()
         self.delete_project_button.setObjectName("DangerButton")
         self.delete_project_button.clicked.connect(self.delete_selected_project)
-        header_row.addWidget(self.new_project_button)
-        header_row.addWidget(self.rename_project_button)
-        header_row.addWidget(self.delete_project_button)
-        layout.addWidget(header)
+        self.project_count_label = QLabel()
+        self.project_count_label.setObjectName("MutedLabel")
+        actions_row.addWidget(self.new_project_button)
+        actions_row.addWidget(self.rename_project_button)
+        actions_row.addWidget(self.delete_project_button)
+        actions_row.addStretch()
+        actions_row.addWidget(self.project_count_label)
+        layout.addWidget(actions)
 
         self.projects_table = QTableWidget(0, 5)
         self.projects_table.setObjectName("TaskTable")
