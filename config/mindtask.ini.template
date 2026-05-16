@@ -8,12 +8,11 @@ default_search_limit = 20
 [ui]
 theme = system
 language = en
-due_day_end = same_day
 
 [shortcuts]
 open_tasks = Ctrl+1
-open_projects = Ctrl+2
-open_settings = Ctrl+3
+open_settings = Ctrl+2
+open_projects = Ctrl+P
 new_task = Ctrl+N
 focus_search = Ctrl+F
 escape_tasks = Esc

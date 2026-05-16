@@ -70,12 +70,11 @@ default_search_limit = 20
 [ui]
 theme = system
 language = en
-due_day_end = same_day
 
 [shortcuts]
 open_tasks = Ctrl+1
-open_projects = Ctrl+2
-open_settings = Ctrl+3
+open_settings = Ctrl+2
+open_projects = Ctrl+P
 new_task = Ctrl+N
 focus_search = Ctrl+F
 escape_tasks = Esc
@@ -89,7 +88,7 @@ delete_task = Ctrl+R
 
 Relative paths are resolved from the project root. Use `--config path/to/file.ini` to run with another config file. If that config file does not exist, MindTask copies it from `config/mindtask.ini.template`. If the template is missing, startup fails with an error.
 
-`ui.due_day_end` controls the latest work time used when the desktop UI user sets a task due date to all day. Use `same_day` for `23:59:59` on the selected date or `next_day_early_morning` for `04:59:59` on the next day.
+All-day tasks are stored as all-day values (`due_mode = all_day`) on the selected date.
 
 Desktop keyboard shortcuts are window-scoped and stored under `[shortcuts]`. They can be changed from Settings.
 

@@ -34,7 +34,7 @@ from .constants import (
     PRIORITY_TRANSLATION_KEYS,
 )
 from .dialog_helpers import confirm_question, localize_dialog_buttons, required_label
-from .due_date_editor import DUE_DAY_END_SAME_DAY, DueDateEditor
+from .due_date_editor import DueDateEditor
 from .i18n import Translator
 from .style import THEME_SYSTEM, badge_colors_for_theme, build_app_style, colors_for_theme
 
@@ -237,7 +237,6 @@ class TaskDialog(QDialog):
         self,
         projects: List[Dict[str, Any]],
         language: str = "system",
-        due_day_end: str = DUE_DAY_END_SAME_DAY,
         parent: Optional[QWidget] = None,
     ):
         super().__init__(parent)
@@ -253,7 +252,7 @@ class TaskDialog(QDialog):
         self.description_edit = QTextEdit()
         self.priority_combo = QComboBox()
         self.project_combo = QComboBox()
-        self.due_editor = DueDateEditor(due_day_end=due_day_end, language=language)
+        self.due_editor = DueDateEditor(language=language)
 
         for priority in PRIORITY_LABELS:
             self.priority_combo.addItem(self.tr(PRIORITY_TRANSLATION_KEYS[priority]), priority)
@@ -286,6 +285,7 @@ class TaskDialog(QDialog):
             "priority": self.priority_combo.currentData(),
             "project_id": self.project_combo.currentData(),
             "due_date": due_date,
+            "due_mode": self.due_editor.due_mode(),
         }
 
     def tr(self, key: str, **kwargs: object) -> str:

@@ -11,18 +11,17 @@ from PySide6.QtWidgets import QComboBox, QDateEdit, QHBoxLayout, QWidget
 from .i18n import Translator
 
 
-DUE_DAY_END_SAME_DAY = "same_day"
-DUE_DAY_END_NEXT_DAY_EARLY_MORNING = "next_day_early_morning"
-DUE_DAY_END_OPTIONS = (DUE_DAY_END_SAME_DAY, DUE_DAY_END_NEXT_DAY_EARLY_MORNING)
+NO_DUE_DATE = QDate(1900, 1, 1)
+NO_DUE_DATE_TEXT = "YYYY-MM-DD"
+NO_DUE_TIME_TEXT = "HH:MM"
 TIME_SLOT_MINUTES = 30
 
 
 class DueDateEditor(QWidget):
     """A date picker with optional exact time for task due dates."""
 
-    def __init__(self, due_day_end: str = DUE_DAY_END_SAME_DAY, language: str = "en", parent: Optional[QWidget] = None):
+    def __init__(self, language: str = "en", parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self.due_day_end = due_day_end if due_day_end in DUE_DAY_END_OPTIONS else DUE_DAY_END_SAME_DAY
         self.translator = Translator(language)
 
         layout = QHBoxLayout(self)
@@ -30,11 +29,13 @@ class DueDateEditor(QWidget):
         layout.setSpacing(8)
 
         self.time_mode_combo = QComboBox()
-        self.time_mode_combo.currentIndexChanged.connect(self._update_enabled_state)
+        self.time_mode_combo.currentIndexChanged.connect(self._handle_time_mode_changed)
         layout.addWidget(self.time_mode_combo)
 
         self.date_edit = QDateEdit()
         self.date_edit.setCalendarPopup(True)
+        self.date_edit.setMinimumDate(NO_DUE_DATE)
+        self.date_edit.setSpecialValueText(NO_DUE_DATE_TEXT)
         self.date_edit.setDisplayFormat("yyyy-MM-dd")
         self.date_edit.setDate(QDate.currentDate())
         self.date_edit.dateChanged.connect(self._enable_due_date)
@@ -69,28 +70,29 @@ class DueDateEditor(QWidget):
         self.date_edit.setToolTip(self.translator.text("due_date_picker"))
         self.time_combo.setToolTip(self.translator.text("due_time_picker"))
 
-    def set_due_day_end(self, due_day_end: str) -> None:
-        if due_day_end in DUE_DAY_END_OPTIONS:
-            self.due_day_end = due_day_end
-
-    def set_due_value(self, value: Optional[str]) -> None:
+    def set_due_value(self, value: Optional[str], due_mode: Optional[str] = None) -> None:
         if not value:
+            self._show_no_due_placeholders()
             self._set_time_mode("none")
             self._update_enabled_state()
             return
 
         due = datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
-        display_date = due.date()
-        exact_time = True
-        due_time = due.time().strftime("%H:%M:%S")
-        if self.due_day_end == DUE_DAY_END_SAME_DAY and due_time == "23:59:59":
-            exact_time = False
-        elif self.due_day_end == DUE_DAY_END_NEXT_DAY_EARLY_MORNING and due_time == "04:59:59":
-            display_date = (due - timedelta(days=1)).date()
-            exact_time = False
+        if due_mode == "all_day":
+            self.date_edit.setDate(QDate(due.year, due.month, due.day))
+            self._set_time_mode("all_day")
+            self._show_time_placeholder()
+            self._update_enabled_state()
+            return
+        if due_mode == "exact_time":
+            self.date_edit.setDate(QDate(due.year, due.month, due.day))
+            self._set_time_mode("exact_time")
+            self._set_time_value(due.time())
+            self._update_enabled_state()
+            return
 
-        self.date_edit.setDate(QDate(display_date.year, display_date.month, display_date.day))
-        self._set_time_mode("exact_time" if exact_time else "all_day")
+        self.date_edit.setDate(QDate(due.year, due.month, due.day))
+        self._set_time_mode("exact_time")
         self._set_time_value(due.time())
         self._update_enabled_state()
 
@@ -104,16 +106,12 @@ class DueDateEditor(QWidget):
             due = datetime.combine(selected_date, selected_time)
             return due.strftime("%Y-%m-%d %H:%M:%S")
 
-        if self.due_day_end == DUE_DAY_END_NEXT_DAY_EARLY_MORNING:
-            due = datetime.combine(selected_date + timedelta(days=1), datetime.min.time()).replace(
-                hour=4,
-                minute=59,
-                second=59,
-            )
-            return due.strftime("%Y-%m-%d %H:%M:%S")
-
-        due = datetime.combine(selected_date, datetime.min.time()).replace(hour=23, minute=59, second=59)
+        due = datetime.combine(selected_date, datetime.min.time())
         return due.strftime("%Y-%m-%d %H:%M:%S")
+
+    def due_mode(self) -> str:
+        mode = self.time_mode_combo.currentData()
+        return str(mode or "none")
 
     def clear(self) -> None:
         self.set_due_value(None)
@@ -121,11 +119,28 @@ class DueDateEditor(QWidget):
     def _update_enabled_state(self) -> None:
         self.time_combo.setEnabled(True)
 
+    def _handle_time_mode_changed(self) -> None:
+        mode = self.time_mode_combo.currentData()
+        if mode == "none":
+            self._show_no_due_placeholders()
+        elif mode == "all_day":
+            self._fill_default_date()
+            self._show_time_placeholder()
+        elif mode == "exact_time":
+            self._fill_default_date()
+            if self.time_combo.currentText().strip() == NO_DUE_TIME_TEXT:
+                self._set_time_value(self._next_half_hour())
+        self._update_enabled_state()
+
     def _enable_due_date(self) -> None:
+        self._fill_default_date()
         if self.time_mode_combo.currentData() == "none":
             self._set_time_mode("all_day")
 
     def _enable_exact_time(self) -> None:
+        self._fill_default_date()
+        if self.time_combo.currentText().strip() == NO_DUE_TIME_TEXT:
+            self._set_time_value(self._next_half_hour())
         if self.time_mode_combo.currentData() != "exact_time":
             self._set_time_mode("exact_time")
 
@@ -142,6 +157,26 @@ class DueDateEditor(QWidget):
         self.time_combo.blockSignals(True)
         self.time_combo.setCurrentText(text)
         self.time_combo.blockSignals(False)
+
+    def _show_no_due_placeholders(self) -> None:
+        self.date_edit.blockSignals(True)
+        self.date_edit.setDate(NO_DUE_DATE)
+        self.date_edit.blockSignals(False)
+        self.time_combo.blockSignals(True)
+        self.time_combo.setCurrentText(NO_DUE_TIME_TEXT)
+        self.time_combo.blockSignals(False)
+
+    def _show_time_placeholder(self) -> None:
+        self.time_combo.blockSignals(True)
+        self.time_combo.setCurrentText(NO_DUE_TIME_TEXT)
+        self.time_combo.blockSignals(False)
+
+    def _fill_default_date(self) -> None:
+        if self.date_edit.date() != NO_DUE_DATE:
+            return
+        self.date_edit.blockSignals(True)
+        self.date_edit.setDate(QDate.currentDate())
+        self.date_edit.blockSignals(False)
 
     def _selected_time(self) -> time:
         value = self.time_combo.currentText().strip()

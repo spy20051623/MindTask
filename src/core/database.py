@@ -17,6 +17,10 @@ STATUS_IN_PROGRESS = 1
 STATUS_SUSPENDED = 2
 STATUS_COMPLETED = 3
 DUE_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+DUE_MODE_NONE = "none"
+DUE_MODE_ALL_DAY = "all_day"
+DUE_MODE_EXACT_TIME = "exact_time"
+DUE_MODES = {DUE_MODE_NONE, DUE_MODE_ALL_DAY, DUE_MODE_EXACT_TIME}
 
 
 class ClosingConnection(sqlite3.Connection):
@@ -46,6 +50,24 @@ def normalize_due_date(value: Optional[str]) -> Optional[str]:
     except ValueError as exc:
         raise ValueError("due_date must use format YYYY-MM-DD HH:MM:SS") from exc
     return value
+
+
+def normalize_task_due(due_date: Optional[str], due_mode: Optional[str] = None) -> tuple[Optional[str], str]:
+    """Validate and normalize task due fields for storage."""
+    if due_mode is None:
+        due_mode = DUE_MODE_EXACT_TIME if due_date else DUE_MODE_NONE
+    if due_mode not in DUE_MODES:
+        raise ValueError("due_mode must be one of none, all_day, exact_time")
+    if due_mode == DUE_MODE_NONE:
+        return None, DUE_MODE_NONE
+
+    due_date = normalize_due_date(due_date)
+    if due_date is None:
+        raise ValueError("due_date is required when due_mode is all_day or exact_time")
+    if due_mode == DUE_MODE_ALL_DAY:
+        due = datetime.strptime(due_date, DUE_DATE_FORMAT)
+        return due.replace(hour=0, minute=0, second=0).strftime(DUE_DATE_FORMAT), DUE_MODE_ALL_DAY
+    return due_date, DUE_MODE_EXACT_TIME
 
 
 class MindTaskDB:
@@ -162,8 +184,22 @@ class MindTaskDB:
 
         with self._connect() as conn:
             conn.executescript(schema)
+            self._ensure_task_due_mode_column(conn)
             if self._migrate_task_status_constraint(conn):
                 conn.executescript(schema)
+                self._ensure_task_due_mode_column(conn)
+
+    def _ensure_task_due_mode_column(self, conn: sqlite3.Connection) -> None:
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(tasks)").fetchall()}
+        if "due_mode" not in columns:
+            conn.execute("ALTER TABLE tasks ADD COLUMN due_mode TEXT DEFAULT 'none'")
+            conn.execute(
+                """
+                UPDATE tasks
+                SET due_mode = CASE WHEN due_date IS NULL THEN 'none' ELSE 'exact_time' END
+                WHERE due_mode IS NULL OR due_mode = 'none'
+                """
+            )
 
     def _migrate_task_status_constraint(self, conn: sqlite3.Connection) -> bool:
         table_sql_row = conn.execute(
@@ -191,6 +227,7 @@ class MindTaskDB:
                 priority INTEGER DEFAULT 0 CHECK (priority BETWEEN 0 AND 3),
                 status INTEGER DEFAULT 0 CHECK (status BETWEEN 0 AND 3),
                 due_date TIMESTAMP,
+                due_mode TEXT DEFAULT 'none' CHECK (due_mode IN ('none', 'all_day', 'exact_time')),
                 completed_at TIMESTAMP,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -199,12 +236,14 @@ class MindTaskDB:
 
             INSERT INTO tasks_new (
                 id, title, description, project_id, priority, status,
-                due_date, completed_at, created_at, updated_at
+                due_date, due_mode, completed_at, created_at, updated_at
             )
             SELECT
                 id, title, description, project_id, priority,
                 CASE WHEN status = 2 THEN 3 ELSE status END,
-                due_date, completed_at, created_at, updated_at
+                due_date,
+                CASE WHEN due_date IS NULL THEN 'none' ELSE 'exact_time' END,
+                completed_at, created_at, updated_at
             FROM tasks;
 
             DROP TABLE tasks;
@@ -338,15 +377,16 @@ class MindTaskDB:
         priority: int = 0,
         status: int = 0,
         due_date: Optional[str] = None,
+        due_mode: Optional[str] = None,
     ) -> int:
-        due_date = normalize_due_date(due_date)
+        due_date, due_mode = normalize_task_due(due_date, due_mode)
         with self._connect() as conn:
             cursor = conn.execute(
                 """
-                INSERT INTO tasks (title, description, project_id, priority, status, due_date)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO tasks (title, description, project_id, priority, status, due_date, due_mode)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (title, description, project_id, priority, status, due_date),
+                (title, description, project_id, priority, status, due_date, due_mode),
             )
             task_id = int(cursor.lastrowid)
             self._record_history(conn, "create", "task", task_id, None, self._task_snapshot(conn, task_id))
@@ -398,9 +438,16 @@ class MindTaskDB:
             return [dict(row) for row in rows]
 
     def update_task(self, task_id: int, **kwargs: Any) -> bool:
-        allowed = {"title", "description", "project_id", "priority", "status", "due_date"}
+        allowed = {"title", "description", "project_id", "priority", "status"}
         fields = []
         values = []
+
+        if "due_date" in kwargs or "due_mode" in kwargs:
+            due_date, due_mode = normalize_task_due(kwargs.get("due_date"), kwargs.get("due_mode"))
+            fields.append("due_date = ?")
+            fields.append("due_mode = ?")
+            values.append(due_date)
+            values.append(due_mode)
 
         for key, value in kwargs.items():
             if key == "status":
@@ -411,7 +458,7 @@ class MindTaskDB:
                 values.append(datetime.now().strftime("%Y-%m-%d %H:%M:%S") if status == STATUS_COMPLETED else None)
             elif key in allowed:
                 fields.append(f"{key} = ?")
-                values.append(normalize_due_date(value) if key == "due_date" else value)
+                values.append(value)
             elif key == "completed":
                 fields.append("status = ?")
                 fields.append("completed_at = ?")

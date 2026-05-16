@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QRect, QTimer, Qt
 from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
@@ -53,6 +53,8 @@ from .shortcut_editor import SHIFTED_KEY_ALIASES
 
 DETAIL_PANEL_MIN_WIDTH = 420
 DETAIL_PANEL_WIDTH = 480
+DETAIL_PANEL_MIN_TABLE_WIDTH = 360
+DETAIL_ANIMATION_DURATION_MS = 240
 SIDEBAR_WIDTH = 220
 
 
@@ -67,7 +69,6 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         self.selected_task_id: Optional[int] = None
         self.theme = self.db.config.ui_theme
         self.language = self.db.config.ui_language
-        self.due_day_end = self.db.config.ui_due_day_end
         self.shortcut_sequences = dict(self.db.config.ui_shortcuts)
         self.task_sort_column = 0
         self.task_sort_order = Qt.SortOrder.AscendingOrder
@@ -84,9 +85,18 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         self._build_shortcuts()
         self.retranslate_ui()
         self.refresh_all()
+        self.position_sidebar_action_button()
+        QTimer.singleShot(0, self.position_sidebar_action_button)
 
     def tr(self, key: str, **kwargs: object) -> str:
         return self.translator.text(key, **kwargs)
+
+    def resizeEvent(self, event: Any) -> None:
+        super().resizeEvent(event)
+        if hasattr(self, "manage_projects_button"):
+            self.position_sidebar_action_button()
+        if hasattr(self, "projects_drawer") and not self.projects_drawer.isHidden():
+            self.projects_drawer.setGeometry(self._projects_drawer_open_geometry())
 
     def _build_layout(self) -> None:
         root = QWidget()
@@ -95,10 +105,9 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         layout.setSpacing(0)
         self.page_stack = QStackedWidget()
         self.tasks_page = self._build_tasks_page()
-        self.projects_page = self._build_projects_page()
+        self._build_projects_drawer_animation()
         self.settings_page = self._build_settings_page()
         self.page_stack.addWidget(self.tasks_page)
-        self.page_stack.addWidget(self.projects_page)
         self.page_stack.addWidget(self.settings_page)
         layout.addWidget(self.page_stack, 1)
         layout.addWidget(self._build_bottom_navigation())
@@ -109,8 +118,8 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
     def _build_shortcuts(self) -> None:
         handlers = {
             "open_tasks": lambda: self.switch_page(0),
-            "open_projects": lambda: self.switch_page(1),
-            "open_settings": lambda: self.switch_page(2),
+            "open_projects": self.shortcut_open_projects,
+            "open_settings": lambda: self.switch_page(1),
             "new_task": self.shortcut_new_task,
             "focus_search": self.shortcut_focus_search,
             "escape_tasks": self.shortcut_escape_tasks,
@@ -184,16 +193,12 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         self.tasks_nav_button = QPushButton()
         self.tasks_nav_button.setObjectName("NavButtonActive")
         self.tasks_nav_button.clicked.connect(lambda: self.switch_page(0))
-        self.projects_nav_button = QPushButton()
-        self.projects_nav_button.setObjectName("NavButton")
-        self.projects_nav_button.clicked.connect(lambda: self.switch_page(1))
         self.settings_nav_button = QPushButton()
         self.settings_nav_button.setObjectName("NavButton")
-        self.settings_nav_button.clicked.connect(lambda: self.switch_page(2))
+        self.settings_nav_button.clicked.connect(lambda: self.switch_page(1))
 
         layout.addStretch()
         layout.addWidget(self.tasks_nav_button)
-        layout.addWidget(self.projects_nav_button)
         layout.addWidget(self.settings_nav_button)
         layout.addStretch()
         return panel
@@ -210,7 +215,9 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         self._set_action_button_icon(self.add_button, "fa6s.plus", "New")
         self._set_action_button_icon(self.refresh_button, "fa6s.arrows-rotate", "Ref")
         self._set_action_button_icon(self.history_button, "fa6s.clock-rotate-left", "His")
+        self._set_action_button_icon(self.manage_projects_button, "fa6s.sliders", "Mgr")
         self._set_action_button_icon(self.close_detail_button, "fa6s.xmark", "X")
+        self._set_action_button_icon(self.close_projects_drawer_button, "fa6s.xmark", "X")
         self.clear_search_action.setIcon(themed_icon("fa6s.xmark", self.theme))
 
     def _build_detail_panel(self) -> QWidget:
@@ -230,8 +237,10 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         layout.addLayout(header_row)
 
         self.detail_animation = QPropertyAnimation(panel, b"maximumWidth", self)
-        self.detail_animation.setDuration(180)
+        self.detail_animation.setDuration(DETAIL_ANIMATION_DURATION_MS)
         self.detail_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.detail_animation.valueChanged.connect(self._apply_task_detail_animation_width)
+        self.detail_animation_opens = False
         self.detail_animation_closes = False
 
         self.title_edit = QLineEdit()
@@ -239,7 +248,7 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         self.status_combo = QComboBox()
         self.priority_combo = QComboBox()
         self.project_combo = QComboBox()
-        self.due_editor = DueDateEditor(due_day_end=self.due_day_end, language=self.language)
+        self.due_editor = DueDateEditor(language=self.language)
 
         for status, label in STATUS_LABELS.items():
             self.status_combo.addItem(label, status)
@@ -279,6 +288,13 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         layout.addStretch()
         return panel
 
+    def _build_projects_drawer_animation(self) -> None:
+        self.projects_drawer_animation = QPropertyAnimation(self.projects_drawer, b"geometry", self)
+        self.projects_drawer_animation.setDuration(DETAIL_ANIMATION_DURATION_MS)
+        self.projects_drawer_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.projects_drawer_animation_opens = False
+        self.projects_drawer_animation_closes = False
+
     def _section_label(self, text: str) -> QLabel:
         label = QLabel(text)
         label.setObjectName("SectionLabel")
@@ -287,12 +303,13 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
     def retranslate_ui(self) -> None:
         self.setWindowTitle("MindTask")
         self.tasks_nav_button.setText(self.tr("tasks"))
-        self.projects_nav_button.setText(self.tr("projects"))
         self.settings_nav_button.setText(self.tr("settings"))
 
         self.search_edit.setPlaceholderText(self.tr("search_tasks"))
         self.clear_search_action.setToolTip(self.tr("clear_search"))
         self.sidebar_projects_label.setText(self.tr("projects"))
+        self.manage_projects_button.setToolTip(self.tr("projects"))
+        self.manage_projects_button.setAccessibleName(self.tr("projects"))
         self.tasks_title_label.setText(self.tr("tasks"))
         self.add_button.setToolTip(self.tr("new_task"))
         self.add_button.setAccessibleName(self.tr("new_task"))
@@ -319,6 +336,8 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         self.task_delete_button.setText(self.tr("delete"))
 
         self.projects_title_label.setText(self.tr("projects"))
+        self.close_projects_drawer_button.setToolTip(self.tr("close"))
+        self.close_projects_drawer_button.setAccessibleName(self.tr("close"))
         self.new_project_button.setText(self.tr("new_project"))
         self.rename_project_button.setText(self.tr("rename"))
         self.delete_project_button.setText(self.tr("delete"))
@@ -360,37 +379,99 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         self.page_stack.setCurrentIndex(index)
         if index == 0:
             self.tasks_nav_button.setObjectName("NavButtonActive")
-            self.projects_nav_button.setObjectName("NavButton")
             self.settings_nav_button.setObjectName("NavButton")
         elif index == 1:
             self.tasks_nav_button.setObjectName("NavButton")
-            self.projects_nav_button.setObjectName("NavButtonActive")
-            self.settings_nav_button.setObjectName("NavButton")
-            self.refresh_project_table()
-        else:
-            self.tasks_nav_button.setObjectName("NavButton")
-            self.projects_nav_button.setObjectName("NavButton")
             self.settings_nav_button.setObjectName("NavButtonActive")
         self.tasks_nav_button.style().unpolish(self.tasks_nav_button)
         self.tasks_nav_button.style().polish(self.tasks_nav_button)
-        self.projects_nav_button.style().unpolish(self.projects_nav_button)
-        self.projects_nav_button.style().polish(self.projects_nav_button)
         self.settings_nav_button.style().unpolish(self.settings_nav_button)
         self.settings_nav_button.style().polish(self.settings_nav_button)
+
+    def open_projects_drawer(self) -> None:
+        if not self._is_tasks_page() or self._is_projects_drawer_open():
+            return
+        if self._is_task_detail_open() or not self.detail_panel.isHidden():
+            self.close_task_detail(clear_selection=False)
+        self.projects_drawer_animation.stop()
+        if self.projects_drawer_animation_opens or self.projects_drawer_animation_closes:
+            self.projects_drawer_animation.finished.disconnect()
+            self.projects_drawer_animation_opens = False
+            self.projects_drawer_animation_closes = False
+        self.projects_drawer.show()
+        self.refresh_project_table()
+        self.projects_drawer.raise_()
+        start_geometry = self._projects_drawer_hidden_geometry()
+        self.projects_drawer.setGeometry(start_geometry)
+        self.projects_drawer_animation.setStartValue(start_geometry)
+        self.projects_drawer_animation.setEndValue(self._projects_drawer_open_geometry())
+        self.projects_drawer_animation.finished.connect(self._finish_open_projects_drawer)
+        self.projects_drawer_animation_opens = True
+        self.projects_drawer_animation.start()
+
+    def close_projects_drawer(self) -> None:
+        if not hasattr(self, "projects_drawer") or self.projects_drawer.isHidden():
+            return
+        self.projects_drawer_animation.stop()
+        if self.projects_drawer_animation_opens:
+            self.projects_drawer_animation.finished.disconnect()
+            self.projects_drawer_animation_opens = False
+        self.projects_drawer_animation.setStartValue(self.projects_drawer.geometry())
+        self.projects_drawer_animation.setEndValue(self._projects_drawer_hidden_geometry())
+        if self.projects_drawer_animation_closes:
+            self.projects_drawer_animation.finished.disconnect()
+        self.projects_drawer_animation.finished.connect(self._hide_projects_drawer_after_animation)
+        self.projects_drawer_animation_closes = True
+        self.projects_drawer_animation.start()
+
+    def _finish_open_projects_drawer(self) -> None:
+        self.projects_drawer.setGeometry(self._projects_drawer_open_geometry())
+        if self.projects_drawer_animation_opens:
+            self.projects_drawer_animation.finished.disconnect()
+        self.projects_drawer_animation_opens = False
+
+    def _hide_projects_drawer_after_animation(self) -> None:
+        self.projects_drawer.hide()
+        self.projects_drawer.setGeometry(self._projects_drawer_hidden_geometry())
+        if self.projects_drawer_animation_closes:
+            self.projects_drawer_animation.finished.disconnect()
+        self.projects_drawer_animation_closes = False
+
+    def _projects_drawer_open_geometry(self) -> QRect:
+        sidebar_width = self.tasks_splitter.sizes()[0] if self.tasks_splitter.sizes() else SIDEBAR_WIDTH
+        width = max(0, self.tasks_page_container.width() - sidebar_width)
+        return QRect(sidebar_width, 0, width, self.tasks_page_container.height())
+
+    def _projects_drawer_hidden_geometry(self) -> QRect:
+        open_geometry = self._projects_drawer_open_geometry()
+        return QRect(self.tasks_page_container.width(), 0, open_geometry.width(), open_geometry.height())
 
     def open_task_detail(self) -> None:
         if not self.detail_panel.isHidden() and self.detail_panel.maximumWidth() > 0:
             return
+        self.set_task_table_compact_mode(True)
         self.detail_animation.stop()
-        if self.detail_animation_closes:
+        if self.detail_animation_opens or self.detail_animation_closes:
             self.detail_animation.finished.disconnect()
+            self.detail_animation_opens = False
             self.detail_animation_closes = False
         self.detail_panel.show()
-        self.detail_panel.setMinimumWidth(DETAIL_PANEL_MIN_WIDTH)
+        self.detail_panel.setMinimumWidth(0)
+        self.detail_panel.setMaximumWidth(0)
+        sidebar_width, total_width = self._task_detail_animation_base(reserve_detail_handle=True)
+        table_min_width = self._task_table_minimum_animation_width()
+        available_detail_width = max(0, total_width - sidebar_width - table_min_width)
+        detail_width = min(DETAIL_PANEL_WIDTH, available_detail_width)
+        if detail_width <= 0:
+            detail_width = min(DETAIL_PANEL_WIDTH, max(0, total_width - sidebar_width))
+        self._detail_animation_sidebar_width = sidebar_width
+        self._detail_animation_total_width = total_width
+        self._apply_task_detail_animation_width(0)
         self.detail_animation.setStartValue(max(0, self.detail_panel.maximumWidth()))
-        self.detail_animation.setEndValue(DETAIL_PANEL_WIDTH)
+        self.detail_animation.setEndValue(detail_width)
+        self.detail_animation.finished.connect(self._finish_open_task_detail)
+        self.detail_animation_opens = True
         self.detail_animation.start()
-        self.tasks_splitter.setSizes([SIDEBAR_WIDTH, 620, DETAIL_PANEL_WIDTH])
 
     def close_task_detail(self, clear_selection: bool = True) -> None:
         if not hasattr(self, "detail_panel"):
@@ -401,9 +482,17 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
             self._clear_detail_panel()
 
         if self.detail_panel.isHidden():
+            self.set_task_table_compact_mode(False)
             return
 
         self.detail_animation.stop()
+        if self.detail_animation_opens:
+            self.detail_animation.finished.disconnect()
+            self.detail_animation_opens = False
+        self.detail_panel.setMinimumWidth(0)
+        sidebar_width, total_width = self._task_detail_animation_base()
+        self._detail_animation_sidebar_width = sidebar_width
+        self._detail_animation_total_width = total_width
         self.detail_animation.setStartValue(max(0, self.detail_panel.width()))
         self.detail_animation.setEndValue(0)
         if self.detail_animation_closes:
@@ -411,18 +500,49 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         self.detail_animation.finished.connect(self._hide_task_detail_after_animation)
         self.detail_animation_closes = True
         self.detail_animation.start()
-        self.tasks_splitter.setSizes([SIDEBAR_WIDTH, 960, 0])
+
+    def _task_detail_animation_base(self, reserve_detail_handle: bool = False) -> tuple[int, int]:
+        sizes = self.tasks_splitter.sizes()
+        if not sizes:
+            return SIDEBAR_WIDTH, self.tasks_splitter.width()
+        total_width = sum(sizes)
+        if reserve_detail_handle:
+            total_width = max(0, total_width - self.tasks_splitter.handleWidth())
+        return sizes[0], total_width
+
+    def _task_table_minimum_animation_width(self) -> int:
+        table_panel = self.tasks_splitter.widget(1)
+        return max(DETAIL_PANEL_MIN_TABLE_WIDTH, table_panel.minimumSizeHint().width())
+
+    def _apply_task_detail_animation_width(self, value: object) -> None:
+        if not hasattr(self, "_detail_animation_sidebar_width"):
+            return
+        sidebar_width = self._detail_animation_sidebar_width
+        total_width = self._detail_animation_total_width
+        detail_width = max(0, min(int(value), total_width - sidebar_width))
+        table_width = max(0, total_width - sidebar_width - detail_width)
+        self.tasks_splitter.setSizes([sidebar_width, table_width, detail_width])
+
+    def _finish_open_task_detail(self) -> None:
+        target_width = int(self.detail_animation.endValue())
+        self._apply_task_detail_animation_width(target_width)
+        self.detail_panel.setMinimumWidth(min(DETAIL_PANEL_MIN_WIDTH, target_width))
+        if self.detail_animation_opens:
+            self.detail_animation.finished.disconnect()
+        self.detail_animation_opens = False
 
     def _hide_task_detail_after_animation(self) -> None:
+        self._apply_task_detail_animation_width(0)
         self.detail_panel.hide()
         self.detail_panel.setMaximumWidth(0)
         self.detail_panel.setMinimumWidth(0)
+        self.set_task_table_compact_mode(False)
         if self.detail_animation_closes:
             self.detail_animation.finished.disconnect()
         self.detail_animation_closes = False
 
     def open_new_task_dialog(self) -> None:
-        dialog = TaskDialog(self.db.get_projects(), self.language, self.due_day_end, parent=self)
+        dialog = TaskDialog(self.db.get_projects(), self.language, parent=self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
 
@@ -455,6 +575,7 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
             priority=self.priority_combo.currentData(),
             project_id=self.project_combo.currentData(),
             due_date=due_date,
+            due_mode=self.due_editor.due_mode(),
         )
         if not changed:
             QMessageBox.warning(self, self.tr("save_failed"), self.tr("task_not_found"))
@@ -525,13 +646,6 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
                 self.theme_combo.setCurrentIndex(index)
                 return
         self.theme_combo.setCurrentIndex(0)
-
-    def _set_due_day_end_combo(self, due_day_end: str) -> None:
-        for index in range(self.due_day_end_combo.count()):
-            if self.due_day_end_combo.itemData(index) == due_day_end:
-                self.due_day_end_combo.setCurrentIndex(index)
-                return
-        self.due_day_end_combo.setCurrentIndex(0)
 
     def _set_project_combo(self, project_id: Optional[int]) -> None:
         for index in range(self.project_combo.count()):

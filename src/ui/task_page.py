@@ -38,6 +38,10 @@ class TaskPageMixin:
     """Mixin for the task list, project filter sidebar, and task shortcuts."""
 
     def _build_tasks_page(self) -> QWidget:
+        self.tasks_page_container = QWidget()
+        page_layout = QVBoxLayout(self.tasks_page_container)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        page_layout.setSpacing(0)
         self.tasks_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.tasks_splitter.addWidget(self._build_sidebar())
         self.tasks_splitter.addWidget(self._build_task_table())
@@ -46,7 +50,13 @@ class TaskPageMixin:
         self.detail_panel.hide()
         self.tasks_splitter.addWidget(self.detail_panel)
         self.tasks_splitter.setSizes([SIDEBAR_WIDTH, 960, 0])
-        return self.tasks_splitter
+        self.tasks_splitter.splitterMoved.connect(lambda _pos, _index: self.position_sidebar_action_button())
+        page_layout.addWidget(self.tasks_splitter)
+
+        self.projects_drawer = self._build_project_drawer()
+        self.projects_drawer.setParent(self.tasks_page_container)
+        self.projects_drawer.hide()
+        return self.tasks_page_container
 
     def _build_sidebar(self) -> QWidget:
         panel = QFrame()
@@ -57,12 +67,30 @@ class TaskPageMixin:
 
         self.sidebar_projects_label = self._section_label("")
         layout.addWidget(self.sidebar_projects_label)
+        self.manage_projects_button = self._icon_button("", "fa6s.sliders", "Mgr", self.toggle_projects_drawer)
+        self.manage_projects_button.setFixedSize(30, 30)
+        self.manage_projects_button.setParent(panel)
+        self.manage_projects_button.raise_()
         self.project_list = QListWidget()
         self.project_list.setObjectName("ProjectList")
         self.project_list.currentItemChanged.connect(lambda _current, _previous: self.refresh_tasks())
         layout.addWidget(self.project_list)
 
         return panel
+
+    def position_sidebar_action_button(self) -> None:
+        if not hasattr(self, "manage_projects_button"):
+            return
+        parent = self.manage_projects_button.parentWidget()
+        if parent is None:
+            return
+        margin = 8
+        x = parent.contentsRect().right() - margin - self.manage_projects_button.width() + 1
+        self.manage_projects_button.move(
+            max(margin, x),
+            8,
+        )
+        self.manage_projects_button.raise_()
 
     def _build_task_table(self) -> QWidget:
         panel = QWidget()
@@ -154,6 +182,12 @@ class TaskPageMixin:
 
         return panel
 
+    def set_task_table_compact_mode(self, compact: bool) -> None:
+        if not hasattr(self, "task_table"):
+            return
+        for column in (2, 3, 4, 5):
+            self.task_table.setColumnHidden(column, compact)
+
     def update_search_clear_action(self) -> None:
         self.clear_search_action.setVisible(bool(self.search_edit.text()) or bool(self.active_search_keyword))
 
@@ -176,10 +210,23 @@ class TaskPageMixin:
     def shortcut_escape_tasks(self) -> None:
         if not self._is_tasks_page():
             return
+        if self._is_projects_drawer_open():
+            self.close_projects_drawer()
+            return
         if self._is_task_detail_open():
             self.close_task_detail()
             return
         self.clear_search()
+
+    def shortcut_open_projects(self) -> None:
+        if self._is_tasks_page():
+            self.toggle_projects_drawer()
+
+    def toggle_projects_drawer(self) -> None:
+        if self._is_projects_drawer_open():
+            self.close_projects_drawer()
+        else:
+            self.open_projects_drawer()
 
     def shortcut_save_task(self) -> None:
         if self._is_tasks_page() and self._is_task_detail_open():
@@ -202,6 +249,13 @@ class TaskPageMixin:
             and self.selected_task_id is not None
             and not self.detail_panel.isHidden()
             and self.detail_panel.maximumWidth() > 0
+        )
+
+    def _is_projects_drawer_open(self) -> bool:
+        return (
+            hasattr(self, "projects_drawer")
+            and not self.projects_drawer.isHidden()
+            and self.projects_drawer.width() > 0
         )
 
     def refresh_projects(self) -> None:
@@ -254,7 +308,7 @@ class TaskPageMixin:
                 self.tr(STATUS_TRANSLATION_KEYS.get(task.get("status"), "status_not_started")),
                 self.tr(PRIORITY_TRANSLATION_KEYS.get(task.get("priority"), "priority_none")),
                 task.get("project_name") or "",
-                task.get("due_date") or "",
+                self._format_task_due(task),
             ]
             for column, value in enumerate(values):
                 item = QTableWidgetItem(str(value))
@@ -340,7 +394,7 @@ class TaskPageMixin:
         self._set_status_combo(int(task.get("status") or 0))
         self._set_priority_combo(int(task.get("priority") or 0))
         self._set_project_combo(task.get("project_id"))
-        self.due_editor.set_due_value(task.get("due_date"))
+        self.due_editor.set_due_value(task.get("due_date"), task.get("due_mode"))
         self.open_task_detail()
 
     def _current_project_id(self) -> Optional[int]:
@@ -354,6 +408,14 @@ class TaskPageMixin:
         if selection_model is not None:
             selection_model.clearSelection()
             selection_model.clearCurrentIndex()
+
+    def _format_task_due(self, task: Dict[str, Any]) -> str:
+        due_date = task.get("due_date")
+        if not due_date:
+            return ""
+        if task.get("due_mode") == "all_day":
+            return f"{str(due_date)[:10]} {self.tr('all_day')}"
+        return str(due_date)
         self.task_table.clearSelection()
 
     def _select_sidebar_project(self, project_id: Optional[int]) -> None:

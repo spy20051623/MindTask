@@ -16,6 +16,12 @@ Update it immediately before creating a release commit, not after every local ch
 
 ## Entries
 
+## 1.2.2 - 2026-05-16
+
+- Summary: Refine the desktop task workspace, settings layout, and all-day due-date model.
+- Changed: Moved project management into a right-side task drawer, improved task detail drawer sizing and animation, added an About settings section, reorganized Data settings into clearer database actions, changed all-day due storage to explicit `due_mode = all_day` with `00:00:00`, removed the obsolete latest-work-time setting from UI and config, and updated Chinese all-day wording.
+- Verified: Ran Python compile checks, offscreen desktop UI checks for settings sections, project and task drawers, all-day due editing and display, and manual core database checks for `due_mode` storage. Full pytest was not run because `pytest` is not installed in the current Python environment.
+
 ## 1.2.1 - 2026-05-15
 
 - Summary: Fix shortcut editing and validation edge cases after the 1.2.0 release.

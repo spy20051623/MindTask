@@ -92,7 +92,6 @@ default_search_limit = 12
 [ui]
 theme = dark
 language = zh
-due_day_end = next_day_early_morning
 
 [shortcuts]
 delete_task = Ctrl+D
@@ -111,7 +110,6 @@ delete_task = Ctrl+D
     assert config.default_search_limit == 12
     assert config.ui_theme == "dark"
     assert config.ui_language == "zh"
-    assert config.ui_due_day_end == "next_day_early_morning"
     assert config.ui_shortcuts["delete_task"] == "Ctrl+D"
     assert config.ui_shortcuts["refresh"] == "F5"
 
@@ -191,6 +189,26 @@ def test_due_date_requires_standard_format(tmp_path):
 
     with pytest.raises(ValueError):
         db.update_task(task_id, due_date="2026-05-15")
+
+
+def test_due_mode_distinguishes_all_day_and_exact_time(tmp_path):
+    db = MindTaskDB(config_path=write_config(tmp_path))
+
+    all_day_id = db.create_task("All day", due_date="2026-05-14 18:30:00", due_mode="all_day")
+    exact_id = db.create_task("Exact", due_date="2026-05-14 18:30:00", due_mode="exact_time")
+    none_id = db.create_task("No due", due_date="2026-05-14 18:30:00", due_mode="none")
+
+    all_day = db.get_task(all_day_id)
+    assert all_day["due_mode"] == "all_day"
+    assert all_day["due_date"] == "2026-05-14 00:00:00"
+
+    exact = db.get_task(exact_id)
+    assert exact["due_mode"] == "exact_time"
+    assert exact["due_date"] == "2026-05-14 18:30:00"
+
+    no_due = db.get_task(none_id)
+    assert no_due["due_mode"] == "none"
+    assert no_due["due_date"] is None
 
 
 def test_history_and_undo_create_update_delete(tmp_path):
