@@ -333,4 +333,18 @@ QListWidget#ProjectList::item:selected {{
     background: {colors["selection_bg"]};
     color: {colors["selection_text"]};
 }}
+QListWidget#DueFilterList {{
+    background: {colors["input_bg"]};
+    color: {colors["text"]};
+}}
+QListWidget#DueFilterList::item {{
+    background: {colors["input_bg"]};
+    color: {colors["text"]};
+    padding: 4px 6px;
+    border-radius: 4px;
+}}
+QListWidget#DueFilterList::item:selected {{
+    background: {colors["selection_bg"]};
+    color: {colors["selection_text"]};
+}}
 """
