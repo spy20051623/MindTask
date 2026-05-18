@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import tempfile
+import shutil
+from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QTimer, Qt
@@ -145,7 +147,11 @@ class SettingsPageMixin(ShortcutSettingsMixin):
         self.reload_db_button = QPushButton()
         self.reload_db_button.setObjectName("SecondaryButton")
         self.reload_db_button.clicked.connect(self.reload_current_database)
+        self.backup_db_button = QPushButton()
+        self.backup_db_button.setObjectName("SecondaryButton")
+        self.backup_db_button.clicked.connect(self.backup_current_database)
         current_button_row.addWidget(self.reload_db_button)
+        current_button_row.addWidget(self.backup_db_button)
         self.reload_database_message = QLabel("")
         self.reload_database_message.setObjectName("MutedLabel")
         self.reload_database_message.hide()
@@ -292,6 +298,7 @@ class SettingsPageMixin(ShortcutSettingsMixin):
         self.apply_db_button.setText(self.tr("apply_database"))
         self.create_db_button.setText(self.tr("create_database"))
         self.reload_db_button.setText(self.tr("reload_current"))
+        self.backup_db_button.setText(self.tr("backup_database"))
         self.database_browse_button.setText(self.tr("browse"))
         self.new_database_browse_button.setText(self.tr("browse"))
         self._retranslate_theme_combo()
@@ -452,6 +459,31 @@ class SettingsPageMixin(ShortcutSettingsMixin):
             self.refresh_all()
         except Exception as exc:
             QMessageBox.warning(self, self.tr("database"), self.tr("could_not_reload_database", error=exc))
+
+    def backup_current_database(self) -> None:
+        source = Path(self.db.db_path)
+        if not source.exists():
+            QMessageBox.warning(self, self.tr("database"), self.tr("database_file_not_found"))
+            return
+
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        default_path = source.with_name(f"{source.stem}-backup-{timestamp}{source.suffix or '.db'}")
+        target_path, _ = QFileDialog.getSaveFileName(
+            self,
+            self.tr("backup_database"),
+            str(default_path),
+            "SQLite (*.db *.sqlite *.sqlite3);;All files (*)",
+        )
+        if not target_path:
+            return
+
+        try:
+            target = Path(target_path)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+            self.show_inline_message(self.reload_database_message, self.tr("database_backup_created", path=str(target)))
+        except Exception as exc:
+            QMessageBox.warning(self, self.tr("database"), self.tr("could_not_backup_database", error=exc))
 
     def _open_database_from_path(self, database_path: str) -> MindTaskDB:
         config = self.db.config

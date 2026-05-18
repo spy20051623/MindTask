@@ -40,7 +40,5 @@ HISTORY_ACTION_TRANSLATION_KEYS = {
 }
 HISTORY_ENTITY_TRANSLATION_KEYS = {
     "project": "entity_project",
-    "tag": "entity_tag",
     "task": "entity_task",
-    "task_tag": "entity_task_tag",
 }
