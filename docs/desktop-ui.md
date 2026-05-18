@@ -56,7 +56,7 @@ The current visual style is a restrained desktop tool layout with compact panels
 The Settings page includes:
 
 - General settings: theme selection and language selection
-- Data settings: current database reload, switching to an existing database, and creating a new database with sample projects and tasks
+- Data settings: current database reload and backup, switching to an existing database, and creating a new database with sample projects and tasks
 - Keyboard shortcut settings
 - About settings: app version, config file path, and active database path
 

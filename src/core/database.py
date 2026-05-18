@@ -94,11 +94,7 @@ class MindTaskDB:
         task = self._row_dict(conn, "tasks", task_id)
         if not task:
             return None
-        rows = conn.execute(
-            "SELECT tag_id FROM task_tags WHERE task_id = ? ORDER BY tag_id",
-            (task_id,),
-        ).fetchall()
-        return {"task": task, "tag_ids": [row["tag_id"] for row in rows]}
+        return {"task": task}
 
     def _project_snapshot(self, conn: sqlite3.Connection, project_id: int) -> Optional[Dict[str, Any]]:
         project = self._row_dict(conn, "projects", project_id)
@@ -109,16 +105,6 @@ class MindTaskDB:
             (project_id,),
         ).fetchall()
         return {"project": project, "task_ids": [row["id"] for row in rows]}
-
-    def _tag_snapshot(self, conn: sqlite3.Connection, tag_id: int) -> Optional[Dict[str, Any]]:
-        tag = self._row_dict(conn, "tags", tag_id)
-        if not tag:
-            return None
-        rows = conn.execute(
-            "SELECT task_id FROM task_tags WHERE tag_id = ? ORDER BY task_id",
-            (tag_id,),
-        ).fetchall()
-        return {"tag": tag, "task_ids": [row["task_id"] for row in rows]}
 
     def _record_history(
         self,
@@ -153,25 +139,11 @@ class MindTaskDB:
 
     def _restore_task_snapshot(self, conn: sqlite3.Connection, snapshot: Dict[str, Any]) -> None:
         self._insert_row(conn, "tasks", snapshot["task"])
-        conn.execute("DELETE FROM task_tags WHERE task_id = ?", (snapshot["task"]["id"],))
-        for tag_id in snapshot.get("tag_ids", []):
-            conn.execute(
-                "INSERT OR IGNORE INTO task_tags (task_id, tag_id) VALUES (?, ?)",
-                (snapshot["task"]["id"], tag_id),
-            )
 
     def _restore_project_snapshot(self, conn: sqlite3.Connection, snapshot: Dict[str, Any]) -> None:
         self._insert_row(conn, "projects", snapshot["project"])
         for task_id in snapshot.get("task_ids", []):
             conn.execute("UPDATE tasks SET project_id = ? WHERE id = ?", (snapshot["project"]["id"], task_id))
-
-    def _restore_tag_snapshot(self, conn: sqlite3.Connection, snapshot: Dict[str, Any]) -> None:
-        self._insert_row(conn, "tags", snapshot["tag"])
-        for task_id in snapshot.get("task_ids", []):
-            conn.execute(
-                "INSERT OR IGNORE INTO task_tags (task_id, tag_id) VALUES (?, ?)",
-                (task_id, snapshot["tag"]["id"]),
-            )
 
     def initialize_database(self) -> None:
         """Create tables and views if they do not exist."""
@@ -185,9 +157,20 @@ class MindTaskDB:
         with self._connect() as conn:
             conn.executescript(schema)
             self._ensure_task_due_mode_column(conn)
+            self._drop_obsolete_tag_schema(conn)
             if self._migrate_task_status_constraint(conn):
                 conn.executescript(schema)
                 self._ensure_task_due_mode_column(conn)
+                self._drop_obsolete_tag_schema(conn)
+
+    def _drop_obsolete_tag_schema(self, conn: sqlite3.Connection) -> None:
+        conn.executescript(
+            """
+            DROP VIEW IF EXISTS tasks_with_tags;
+            DROP TABLE IF EXISTS task_tags;
+            DROP TABLE IF EXISTS tags;
+            """
+        )
 
     def _ensure_task_due_mode_column(self, conn: sqlite3.Connection) -> None:
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(tasks)").fetchall()}
@@ -424,19 +407,6 @@ class MindTaskDB:
             row = conn.execute("SELECT * FROM task_details WHERE id = ?", (task_id,)).fetchone()
             return dict(row) if row else None
 
-    def get_tasks_with_tags(self, task_id: Optional[int] = None) -> List[Dict[str, Any]]:
-        query = "SELECT * FROM tasks_with_tags"
-        params: List[Any] = []
-
-        if task_id is not None:
-            query += " WHERE id = ?"
-            params.append(task_id)
-
-        query += " ORDER BY id ASC"
-        with self._connect() as conn:
-            rows = conn.execute(query, params).fetchall()
-            return [dict(row) for row in rows]
-
     def update_task(self, task_id: int, **kwargs: Any) -> bool:
         allowed = {"title", "description", "project_id", "priority", "status"}
         fields = []
@@ -494,66 +464,6 @@ class MindTaskDB:
             if changed:
                 self._record_history(conn, "delete", "task", task_id, before, None)
             return changed
-
-    # Tag operations
-    def create_tag(self, name: str, color: str = "#6C757D") -> int:
-        with self._connect() as conn:
-            existed = conn.execute("SELECT id FROM tags WHERE name = ?", (name,)).fetchone()
-            conn.execute(
-                "INSERT OR IGNORE INTO tags (name, color) VALUES (?, ?)",
-                (name, color),
-            )
-            row = conn.execute("SELECT id FROM tags WHERE name = ?", (name,)).fetchone()
-            tag_id = int(row["id"])
-            if existed is None:
-                self._record_history(conn, "create", "tag", tag_id, None, self._tag_snapshot(conn, tag_id))
-            return tag_id
-
-    def get_tags(self) -> List[Dict[str, Any]]:
-        with self._connect() as conn:
-            rows = conn.execute("SELECT * FROM tags ORDER BY name").fetchall()
-            return [dict(row) for row in rows]
-
-    def add_tag_to_task(self, task_id: int, tag_id: int) -> bool:
-        with self._connect() as conn:
-            try:
-                before = {"task_id": task_id, "tag_id": tag_id, "exists": False}
-                cursor = conn.execute(
-                    "INSERT OR IGNORE INTO task_tags (task_id, tag_id) VALUES (?, ?)",
-                    (task_id, tag_id),
-                )
-                changed = cursor.rowcount > 0
-                if changed:
-                    after = {"task_id": task_id, "tag_id": tag_id, "exists": True}
-                    self._record_history(conn, "create", "task_tag", None, before, after)
-                return changed
-            except sqlite3.IntegrityError:
-                return False
-
-    def remove_tag_from_task(self, task_id: int, tag_id: int) -> bool:
-        with self._connect() as conn:
-            before = {"task_id": task_id, "tag_id": tag_id, "exists": True}
-            cursor = conn.execute(
-                "DELETE FROM task_tags WHERE task_id = ? AND tag_id = ?",
-                (task_id, tag_id),
-            )
-            changed = cursor.rowcount > 0
-            if changed:
-                self._record_history(conn, "delete", "task_tag", None, before, {"task_id": task_id, "tag_id": tag_id, "exists": False})
-            return changed
-
-    def get_task_tags(self, task_id: int) -> List[Dict[str, Any]]:
-        with self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT t.* FROM tags t
-                JOIN task_tags tt ON t.id = tt.tag_id
-                WHERE tt.task_id = ?
-                ORDER BY t.name
-                """,
-                (task_id,),
-            ).fetchall()
-            return [dict(row) for row in rows]
 
     # Reports
     def get_stats(self) -> Dict[str, Any]:
@@ -701,25 +611,8 @@ class MindTaskDB:
                 self._restore_project_snapshot(conn, before)
             elif action == "update":
                 self._restore_project_snapshot(conn, before)
-        elif entity_type == "tag":
-            if action == "create":
-                conn.execute("DELETE FROM tags WHERE id = ?", (entity_id,))
-            elif action == "delete":
-                self._restore_tag_snapshot(conn, before)
-            elif action == "update":
-                self._restore_tag_snapshot(conn, before)
-        elif entity_type == "task_tag":
-            snapshot = before if action == "delete" else after
-            if action == "create":
-                conn.execute(
-                    "DELETE FROM task_tags WHERE task_id = ? AND tag_id = ?",
-                    (snapshot["task_id"], snapshot["tag_id"]),
-                )
-            elif action == "delete":
-                conn.execute(
-                    "INSERT OR IGNORE INTO task_tags (task_id, tag_id) VALUES (?, ?)",
-                    (snapshot["task_id"], snapshot["tag_id"]),
-                )
+        elif entity_type in {"tag", "task_tag"}:
+            pass
         else:
             raise ValueError(f"Unsupported history entity type: {entity_type}")
 

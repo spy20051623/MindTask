@@ -16,6 +16,12 @@ Update it immediately before creating a release commit, not after every local ch
 
 ## Entries
 
+## 1.2.3 - 2026-05-18
+
+- Summary: Add database backup support and remove unused tag storage.
+- Changed: Added a Data settings action to back up the current SQLite database to a timestamped file, documented the backup action, removed unused tag and task-tag tables/views from the schema and core layer, and cleaned obsolete tag structures from existing databases during initialization.
+- Verified: Ran Python compile checks, offscreen desktop UI checks for the Data settings backup button, manual backup-file creation smoke checks, new-database schema checks without tag tables, and UI startup checks after cleaning the active database. Full pytest was not run because `pytest` is not installed in the current Python environment.
+
 ## 1.2.2 - 2026-05-16
 
 - Summary: Refine the desktop task workspace, settings layout, and all-day due-date model.
