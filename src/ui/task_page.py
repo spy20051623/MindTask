@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QAction, QColor
 from PySide6.QtWidgets import (
     QApplication,
     QAbstractItemView,
@@ -27,11 +28,15 @@ from PySide6.QtWidgets import (
 
 from .constants import PRIORITY_LABELS, PRIORITY_TRANSLATION_KEYS, STATUS_LABELS, STATUS_TRANSLATION_KEYS
 from .icons import themed_icon
-from .style import badge_colors_for_theme
+from .style import THEME_DARK, badge_colors_for_theme, colors_for_theme, resolve_theme
 
 
 DETAIL_PANEL_WIDTH = 480
 SIDEBAR_WIDTH = 220
+TASK_VIEW_TODAY = "__today__"
+TASK_VIEW_TOMORROW = "__tomorrow__"
+TASK_VIEW_THREE_DAYS = "__three_days__"
+TASK_VIEW_SEVEN_DAYS = "__seven_days__"
 
 
 class TaskPageMixin:
@@ -65,6 +70,15 @@ class TaskPageMixin:
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(10)
 
+        self.sidebar_views_label = self._section_label("")
+        layout.addWidget(self.sidebar_views_label)
+        self.task_view_list = QListWidget()
+        self.task_view_list.setObjectName("DueFilterList")
+        self.task_view_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.task_view_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.task_view_list.currentItemChanged.connect(lambda _current, _previous: self.refresh_tasks())
+        layout.addWidget(self.task_view_list)
+
         self.sidebar_projects_label = self._section_label("")
         layout.addWidget(self.sidebar_projects_label)
         self.manage_projects_button = self._icon_button("", "fa6s.sliders", "Mgr", self.toggle_projects_drawer)
@@ -85,10 +99,12 @@ class TaskPageMixin:
         if parent is None:
             return
         margin = 8
-        x = parent.contentsRect().right() - margin - self.manage_projects_button.width() + 1
+        target_right = self.project_list.geometry().right() if hasattr(self, "project_list") else parent.contentsRect().right()
+        x = target_right - self.manage_projects_button.width() + 1
+        y = self.sidebar_projects_label.y() + (self.sidebar_projects_label.height() - self.manage_projects_button.height()) // 2
         self.manage_projects_button.move(
             max(margin, x),
-            8,
+            max(margin, y),
         )
         self.manage_projects_button.raise_()
 
@@ -259,15 +275,45 @@ class TaskPageMixin:
         )
 
     def refresh_projects(self) -> None:
+        selected_view = self._current_task_view() or None
         selected_sidebar_project_id = self._current_project_id()
         selected_detail_project_id = self.project_combo.currentData() if hasattr(self, "project_combo") else None
+
+        self.task_view_list.blockSignals(True)
+        self.task_view_list.clear()
+
+        all_item = QListWidgetItem(self.tr("all"))
+        all_item.setData(Qt.ItemDataRole.UserRole, None)
+        all_item.setSizeHint(QSize(0, 28))
+        self._apply_list_item_color(all_item)
+        self.task_view_list.addItem(all_item)
+
+        due_filter_items = [
+            ("due_today", TASK_VIEW_TODAY),
+            ("due_tomorrow", TASK_VIEW_TOMORROW),
+            ("due_three_days", TASK_VIEW_THREE_DAYS),
+            ("due_seven_days", TASK_VIEW_SEVEN_DAYS),
+        ]
+        for label_key, value in due_filter_items:
+            item = QListWidgetItem(self.tr(label_key))
+            item.setData(Qt.ItemDataRole.UserRole, value)
+            item.setSizeHint(QSize(0, 28))
+            self._apply_list_item_color(item)
+            self.task_view_list.addItem(item)
+
+        self._select_task_view(selected_view)
+        if self.task_view_list.currentRow() < 0:
+            self.task_view_list.setCurrentRow(0)
+        self._fit_task_view_list_height()
+        self.task_view_list.blockSignals(False)
+
         self.project_list.blockSignals(True)
         self.project_list.clear()
 
-        all_item = QListWidgetItem(self.tr("all_tasks"))
-        all_item.setData(Qt.ItemDataRole.UserRole, None)
-        self._apply_list_item_color(all_item)
-        self.project_list.addItem(all_item)
+        all_projects_item = QListWidgetItem(self.tr("all"))
+        all_projects_item.setData(Qt.ItemDataRole.UserRole, None)
+        self._apply_list_item_color(all_projects_item)
+        self.project_list.addItem(all_projects_item)
 
         for project in self.db.get_projects():
             item = QListWidgetItem(project["name"])
@@ -288,6 +334,7 @@ class TaskPageMixin:
 
     def refresh_tasks(self) -> None:
         project_id = self._current_project_id()
+        task_view = self._current_task_view()
         keyword = self.search_edit.text().strip()
         self.active_search_keyword = keyword
         self.update_search_clear_action()
@@ -297,6 +344,9 @@ class TaskPageMixin:
                 tasks = [task for task in tasks if task.get("project_id") == project_id]
         else:
             tasks = self.db.get_tasks(project_id=project_id, limit=self.db.config.default_task_limit)
+
+        if task_view is not None:
+            tasks = self._filter_due_tasks(tasks, task_view)
 
         tasks = self._sort_tasks(tasks)
         self.tasks = tasks
@@ -310,6 +360,7 @@ class TaskPageMixin:
                 task.get("project_name") or "",
                 self._format_task_due(task),
             ]
+            is_overdue = self._is_task_overdue(task)
             for column, value in enumerate(values):
                 item = QTableWidgetItem(str(value))
                 self._apply_plain_cell_color(item, row)
@@ -326,6 +377,8 @@ class TaskPageMixin:
                     priority_key = task.get("priority_text") or PRIORITY_LABELS.get(task.get("priority"), "None")
                     self._apply_badge_color(item, priority_colors.get(str(priority_key), priority_colors["None"]))
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                if is_overdue and column == 5:
+                    self._apply_overdue_cell_color(item)
                 self.task_table.setItem(row, column, item)
 
         self.task_table.resizeRowsToContents()
@@ -398,6 +451,17 @@ class TaskPageMixin:
         self.open_task_detail()
 
     def _current_project_id(self) -> Optional[int]:
+        value = self._current_project_value()
+        return value if isinstance(value, int) else None
+
+    def _current_task_view(self) -> Optional[str]:
+        item = self.task_view_list.currentItem()
+        if item is None:
+            return None
+        value = item.data(Qt.ItemDataRole.UserRole)
+        return value if isinstance(value, str) else None
+
+    def _current_project_value(self) -> object:
         item = self.project_list.currentItem()
         if item is None:
             return None
@@ -416,7 +480,83 @@ class TaskPageMixin:
         if task.get("due_mode") == "all_day":
             return f"{str(due_date)[:10]} {self.tr('all_day')}"
         return str(due_date)
-        self.task_table.clearSelection()
+
+    def _filter_due_tasks(self, tasks: List[Dict[str, Any]], task_view: str) -> List[Dict[str, Any]]:
+        today = date.today()
+        cutoff = self._due_filter_cutoff(today, task_view)
+        if cutoff is None:
+            return tasks
+        filtered = []
+        for task in tasks:
+            due_date = self._task_due_date(task)
+            if due_date is None:
+                continue
+            if task.get("status") == 3:
+                continue
+            if due_date <= cutoff:
+                filtered.append(task)
+        return filtered
+
+    def _due_filter_cutoff(self, today: date, task_view: str) -> Optional[date]:
+        if task_view == TASK_VIEW_TODAY:
+            return today
+        if task_view == TASK_VIEW_TOMORROW:
+            return today + timedelta(days=1)
+        if task_view == TASK_VIEW_THREE_DAYS:
+            return today + timedelta(days=3)
+        if task_view == TASK_VIEW_SEVEN_DAYS:
+            return today + timedelta(days=7)
+        return None
+
+    def _task_due_date(self, task: Dict[str, Any]) -> Optional[date]:
+        due_date = task.get("due_date")
+        if not due_date:
+            return None
+        try:
+            return datetime.strptime(str(due_date), "%Y-%m-%d %H:%M:%S").date()
+        except ValueError:
+            return None
+
+    def _is_task_overdue(self, task: Dict[str, Any]) -> bool:
+        if task.get("status") == 3:
+            return False
+        due_date = task.get("due_date")
+        if not due_date:
+            return False
+        if task.get("due_mode") == "all_day":
+            task_due_date = self._task_due_date(task)
+            return task_due_date is not None and task_due_date < date.today()
+        try:
+            task_due_at = datetime.strptime(str(due_date), "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            return False
+        return task_due_at < datetime.now()
+
+    def _apply_overdue_cell_color(self, item: QTableWidgetItem) -> None:
+        resolved_theme = resolve_theme(self.theme, QApplication.instance())
+        colors = colors_for_theme(self.theme, QApplication.instance())
+        if resolved_theme == THEME_DARK:
+            item.setBackground(QColor("#4a2424"))
+            item.setForeground(QColor("#fee2e2"))
+        else:
+            item.setBackground(QColor("#fee2e2"))
+            item.setForeground(QColor(colors["text"]))
+
+    def _select_task_view(self, value: object) -> None:
+        for row in range(self.task_view_list.count()):
+            item = self.task_view_list.item(row)
+            if item.data(Qt.ItemDataRole.UserRole) == value:
+                self.task_view_list.setCurrentRow(row)
+                return
+
+    def _fit_task_view_list_height(self) -> None:
+        row_count = self.task_view_list.count()
+        if row_count <= 0:
+            return
+        row_height = 28
+        frame_height = self.task_view_list.frameWidth() * 2
+        viewport_padding = 0
+        self.task_view_list.setFixedHeight(row_height * row_count + frame_height + viewport_padding)
 
     def _select_sidebar_project(self, project_id: Optional[int]) -> None:
         for row in range(self.project_list.count()):

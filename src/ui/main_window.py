@@ -307,6 +307,7 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
 
         self.search_edit.setPlaceholderText(self.tr("search_tasks"))
         self.clear_search_action.setToolTip(self.tr("clear_search"))
+        self.sidebar_views_label.setText(self.tr("due_filters"))
         self.sidebar_projects_label.setText(self.tr("projects"))
         self.manage_projects_button.setToolTip(self.tr("projects"))
         self.manage_projects_button.setAccessibleName(self.tr("projects"))

@@ -16,6 +16,12 @@ Update it immediately before creating a release commit, not after every local ch
 
 ## Entries
 
+## 1.2.4 - 2026-05-19
+
+- Summary: Add upcoming due filters and overdue due-date highlighting to the task page.
+- Changed: Added an upcoming-due section in the task sidebar with today, tomorrow, 3-day, and 7-day filters that can be combined with project filtering, kept completed tasks out of due-range filters, aligned the project management action with sidebar lists, tightened the upcoming filter layout, and highlighted only the due-date cell for overdue unfinished tasks while keeping all-day tasks unmarked until after their date passes.
+- Verified: Ran Python compile checks and offscreen desktop UI checks for upcoming due filter labels, date ranges, project-filter intersection, completed-task exclusion, compact sidebar sizing, project action alignment, and overdue due-cell highlighting.
+
 ## 1.2.3 - 2026-05-18
 
 - Summary: Add database backup support and remove unused tag storage.

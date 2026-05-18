@@ -35,7 +35,7 @@ Current pages:
 
 The Tasks page uses a task-focused layout:
 
-- Left: project navigation
+- Left: separate upcoming-due filters and project navigation. Upcoming filters include today, tomorrow, 3 days, and 7 days; each includes overdue unfinished tasks.
 - Center: task table with search
 - Right: selected task detail editor
 

@@ -8,7 +8,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="mindtask",
-    version="1.2.3",
+    version="1.2.4",
     author="MindTask Team",
     description="A small SQLite task manager with CLI and desktop UI",
     long_description=long_description,
