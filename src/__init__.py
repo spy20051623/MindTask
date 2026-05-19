@@ -2,8 +2,8 @@
 
 from .core import MindTaskDB
 
-__version__ = "1.2.4"
-__author__ = "MindTask Team"
+__version__ = "1.2.5"
+__author__ = "PY Shu"
 
 __all__ = [
     "MindTaskDB",

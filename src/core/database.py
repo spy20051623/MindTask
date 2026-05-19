@@ -550,6 +550,18 @@ class MindTaskDB:
             rows = conn.execute(query, params).fetchall()
             return [dict(row) for row in rows]
 
+    def get_task_history(self, task_id: int, limit: int = 10, include_undone: bool = True) -> List[Dict[str, Any]]:
+        query = "SELECT * FROM operation_history WHERE entity_type = 'task' AND entity_id = ?"
+        params: List[Any] = [task_id]
+        if not include_undone:
+            query += " AND undone_at IS NULL"
+        query += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+
+        with self._connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+            return [dict(row) for row in rows]
+
     def undo_last_operation(self) -> Optional[Dict[str, Any]]:
         with self._connect() as conn:
             history = self._next_undoable_history(conn)

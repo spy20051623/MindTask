@@ -80,7 +80,7 @@ Creating a database requires entering a path that does not already exist and cli
 - Complete a task
 - Delete a task
 - Open operation history
-- Undo the latest operation from the history window
+- Undo the latest operation from the history drawer, with confirmation
 - Undo operations from the latest down to a selected history record
 
 ## Keyboard Shortcuts
@@ -97,8 +97,7 @@ Shortcut rows turn red when a shortcut is duplicated or may conflict with normal
 - `Ctrl+F`: Focus task search from the Tasks page
 - `Esc`: Close task details first; if details are closed, clear active search
 - `F5`: Refresh data
-- `Ctrl+U`: Undo the latest operation
-- `Ctrl+H`: Open operation history
+- `Ctrl+H`: Open operation history, or close it when it is already open on the Tasks page
 - `Ctrl+S`: Save the open task details
 - `Ctrl+Enter`: Complete the open task
 - `Ctrl+R`: Delete the open task, with confirmation

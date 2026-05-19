@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
-from typing import Any, Dict, List, Optional
+from math import ceil
+from typing import Any, Callable, Dict, List, Optional
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize, QTimer, Qt
 from PySide6.QtGui import QAction, QColor
 from PySide6.QtWidgets import (
     QApplication,
@@ -31,7 +32,6 @@ from .icons import themed_icon
 from .style import THEME_DARK, badge_colors_for_theme, colors_for_theme, resolve_theme
 
 
-DETAIL_PANEL_WIDTH = 480
 SIDEBAR_WIDTH = 220
 TASK_VIEW_TODAY = "__today__"
 TASK_VIEW_TOMORROW = "__tomorrow__"
@@ -48,6 +48,9 @@ class TaskPageMixin:
         page_layout.setContentsMargins(0, 0, 0, 0)
         page_layout.setSpacing(0)
         self.tasks_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.tasks_splitter.setHandleWidth(0)
+        self.tasks_splitter.setChildrenCollapsible(False)
+        self.tasks_splitter.setCursor(Qt.CursorShape.ArrowCursor)
         self.tasks_splitter.addWidget(self._build_sidebar())
         self.tasks_splitter.addWidget(self._build_task_table())
         self.detail_panel = self._build_detail_panel()
@@ -55,17 +58,27 @@ class TaskPageMixin:
         self.detail_panel.hide()
         self.tasks_splitter.addWidget(self.detail_panel)
         self.tasks_splitter.setSizes([SIDEBAR_WIDTH, 960, 0])
-        self.tasks_splitter.splitterMoved.connect(lambda _pos, _index: self.position_sidebar_action_button())
+        self._disable_task_splitter_handles()
         page_layout.addWidget(self.tasks_splitter)
 
         self.projects_drawer = self._build_project_drawer()
         self.projects_drawer.setParent(self.tasks_page_container)
         self.projects_drawer.hide()
+        self.history_drawer = self._build_history_drawer()
+        self.history_drawer.setParent(self.tasks_page_container)
+        self.history_drawer.hide()
         return self.tasks_page_container
+
+    def _disable_task_splitter_handles(self) -> None:
+        for index in range(1, self.tasks_splitter.count()):
+            handle = self.tasks_splitter.handle(index)
+            handle.setEnabled(False)
+            handle.setCursor(Qt.CursorShape.ArrowCursor)
 
     def _build_sidebar(self) -> QWidget:
         panel = QFrame()
         panel.setObjectName("Sidebar")
+        panel.setFixedWidth(SIDEBAR_WIDTH)
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(10)
@@ -76,7 +89,7 @@ class TaskPageMixin:
         self.task_view_list.setObjectName("DueFilterList")
         self.task_view_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.task_view_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.task_view_list.currentItemChanged.connect(lambda _current, _previous: self.refresh_tasks())
+        self.task_view_list.currentItemChanged.connect(self.handle_task_view_changed)
         layout.addWidget(self.task_view_list)
 
         self.sidebar_projects_label = self._section_label("")
@@ -87,7 +100,7 @@ class TaskPageMixin:
         self.manage_projects_button.raise_()
         self.project_list = QListWidget()
         self.project_list.setObjectName("ProjectList")
-        self.project_list.currentItemChanged.connect(lambda _current, _previous: self.refresh_tasks())
+        self.project_list.currentItemChanged.connect(self.handle_project_filter_changed)
         layout.addWidget(self.project_list)
 
         return panel
@@ -207,11 +220,58 @@ class TaskPageMixin:
     def update_search_clear_action(self) -> None:
         self.clear_search_action.setVisible(bool(self.search_edit.text()) or bool(self.active_search_keyword))
 
+    def handle_task_view_changed(self, current: Optional[QListWidgetItem], previous: Optional[QListWidgetItem]) -> None:
+        current_value = current.data(Qt.ItemDataRole.UserRole) if current is not None else None
+        current_value = current_value if isinstance(current_value, str) else None
+        if self._handle_filter_change_cancelled(self.task_view_list, self._accepted_task_view, self._select_task_view):
+            return
+        self._accepted_task_view = current_value
+        self.refresh_tasks(force_detail=True)
+
+    def handle_project_filter_changed(self, current: Optional[QListWidgetItem], previous: Optional[QListWidgetItem]) -> None:
+        current_value = current.data(Qt.ItemDataRole.UserRole) if current is not None else None
+        current_value = current_value if isinstance(current_value, int) else None
+        if self._handle_filter_change_cancelled(self.project_list, self._accepted_project_filter, self._select_sidebar_project):
+            return
+        self._accepted_project_filter = current_value
+        self.refresh_tasks(force_detail=True)
+
+    def _handle_filter_change_cancelled(
+        self,
+        list_widget: QListWidget,
+        accepted_value: object,
+        restore: Callable[[object], None],
+    ) -> bool:
+        if getattr(self, "_restoring_filter_selection", False):
+            return True
+        if self.confirm_task_detail_transition():
+            return False
+        self._restore_filter_selection(list_widget, accepted_value, restore)
+        QTimer.singleShot(0, lambda: self._restore_filter_selection(list_widget, accepted_value, restore))
+        return True
+
+    def _restore_filter_selection(
+        self,
+        list_widget: QListWidget,
+        accepted_value: object,
+        restore: Callable[[object], None],
+    ) -> None:
+        self._restoring_filter_selection = True
+        was_blocked = list_widget.signalsBlocked()
+        try:
+            list_widget.blockSignals(True)
+            restore(accepted_value)
+        finally:
+            list_widget.blockSignals(was_blocked)
+            self._restoring_filter_selection = False
+
     def clear_search(self) -> None:
         if not self.search_edit.text() and not self.active_search_keyword:
             return
+        if not self.confirm_task_detail_transition():
+            return
         self.search_edit.clear()
-        self.refresh_tasks()
+        self.refresh_tasks(force_detail=True)
 
     def shortcut_new_task(self) -> None:
         if self._is_tasks_page():
@@ -226,8 +286,14 @@ class TaskPageMixin:
     def shortcut_escape_tasks(self) -> None:
         if not self._is_tasks_page():
             return
+        if self._is_history_drawer_open():
+            self.close_history_drawer()
+            return
         if self._is_projects_drawer_open():
             self.close_projects_drawer()
+            return
+        if self._is_task_detail_open() and self._is_description_editing():
+            self._show_description_preview()
             return
         if self._is_task_detail_open():
             self.close_task_detail()
@@ -249,7 +315,7 @@ class TaskPageMixin:
             self.save_selected_task()
 
     def shortcut_complete_task(self) -> None:
-        if self._is_tasks_page() and self._is_task_detail_open():
+        if self._is_tasks_page() and self._is_task_detail_open() and not self._selected_task_completed():
             self.complete_selected_task()
 
     def shortcut_delete_task(self) -> None:
@@ -262,9 +328,13 @@ class TaskPageMixin:
     def _is_task_detail_open(self) -> bool:
         return (
             hasattr(self, "detail_panel")
-            and self.selected_task_id is not None
+            and (self.selected_task_id is not None or getattr(self, "detail_mode", "closed") == "create")
             and not self.detail_panel.isHidden()
-            and self.detail_panel.maximumWidth() > 0
+            and (
+                self.detail_panel.maximumWidth() > 0
+                or self.detail_panel.width() > 0
+                or getattr(self, "detail_animation_opens", False)
+            )
         )
 
     def _is_projects_drawer_open(self) -> bool:
@@ -272,6 +342,13 @@ class TaskPageMixin:
             hasattr(self, "projects_drawer")
             and not self.projects_drawer.isHidden()
             and self.projects_drawer.width() > 0
+        )
+
+    def _is_history_drawer_open(self) -> bool:
+        return (
+            hasattr(self, "history_drawer")
+            and not self.history_drawer.isHidden()
+            and self.history_drawer.width() > 0
         )
 
     def refresh_projects(self) -> None:
@@ -325,6 +402,8 @@ class TaskPageMixin:
         if self.project_list.currentRow() < 0:
             self.project_list.setCurrentRow(0)
         self.project_list.blockSignals(False)
+        self._accepted_task_view = self._current_task_view()
+        self._accepted_project_filter = self._current_project_id()
 
         self.project_combo.clear()
         self.project_combo.addItem(self.tr("none"), None)
@@ -332,7 +411,9 @@ class TaskPageMixin:
             self.project_combo.addItem(project["name"], project["id"])
         self._set_project_combo(selected_detail_project_id)
 
-    def refresh_tasks(self) -> None:
+    def refresh_tasks(self, force_detail: bool = False) -> bool:
+        if not self.confirm_task_detail_transition(force=force_detail):
+            return False
         project_id = self._current_project_id()
         task_view = self._current_task_view()
         keyword = self.search_edit.text().strip()
@@ -385,15 +466,22 @@ class TaskPageMixin:
         self.task_count_label.setText(self.tr("task_count", count=len(tasks)))
         self.task_stack.setCurrentWidget(self.task_table if tasks else self.empty_label)
         self.statusBar().showMessage(self.tr("task_count", count=len(tasks)))
-        if self.selected_task_id is not None and any(task["id"] == self.selected_task_id for task in tasks):
+        selected_task = None
+        if self.selected_task_id is not None:
+            selected_task = next((task for task in tasks if task["id"] == self.selected_task_id), None)
+        if selected_task is not None:
             self._select_task(self.selected_task_id)
+            self._populate_task_detail(selected_task)
         else:
             self.selected_task_id = None
             self._clear_task_selection()
             self._clear_detail_panel()
-            self.close_task_detail(clear_selection=False)
+            self.close_task_detail(clear_selection=False, force=True)
+        return True
 
     def sort_tasks_by_column(self, column: int) -> None:
+        if not self.confirm_task_detail_transition():
+            return
         if column == self.task_sort_column:
             self.task_sort_order = (
                 Qt.SortOrder.DescendingOrder
@@ -404,7 +492,7 @@ class TaskPageMixin:
             self.task_sort_column = column
             self.task_sort_order = Qt.SortOrder.AscendingOrder
         self._update_task_sort_indicator()
-        self.refresh_tasks()
+        self.refresh_tasks(force_detail=True)
 
     def _update_task_sort_indicator(self) -> None:
         if hasattr(self, "task_table"):
@@ -433,22 +521,46 @@ class TaskPageMixin:
         return sorted(present, key=value_for, reverse=reverse) + sorted(missing, key=lambda task: task.get("id") or 0)
 
     def load_selected_task(self) -> None:
+        if getattr(self, "_restoring_task_selection", False):
+            return
         rows = self.task_table.selectionModel().selectedRows()
         if not rows:
             return
         task_id = self.task_table.item(rows[0].row(), 0).data(Qt.ItemDataRole.UserRole)
-        task = self.db.get_task(int(task_id))
+        task_id = int(task_id)
+        if self.selected_task_id == task_id and self._is_task_detail_open():
+            return
+        if self._is_task_detail_open():
+            if not self.confirm_task_detail_transition():
+                self._restore_task_selection(self.selected_task_id)
+                return
+        task = self.db.get_task(task_id)
         if not task:
             return
 
-        self.selected_task_id = int(task_id)
+        self.selected_task_id = task_id
+        self._populate_task_detail(task)
+        self.open_task_detail()
+
+    def _populate_task_detail(self, task: Dict[str, Any]) -> None:
+        self.detail_mode = "edit"
+        self._set_create_detail_mode(False)
+        self.task_detail_title_label.setText(self.tr("task_detail_with_id", id=self.selected_task_id))
         self.title_edit.setText(task.get("title") or "")
         self.description_edit.setPlainText(task.get("description") or "")
+        self._show_description_preview()
         self._set_status_combo(int(task.get("status") or 0))
         self._set_priority_combo(int(task.get("priority") or 0))
         self._set_project_combo(task.get("project_id"))
         self.due_editor.set_due_value(task.get("due_date"), task.get("due_mode"))
-        self.open_task_detail()
+        self._set_task_detail_metadata(task)
+        self._set_detail_original_values(task)
+        self.refresh_task_detail_history()
+
+    def discard_selected_task_changes(self) -> None:
+        if self.selected_task_id is None and getattr(self, "detail_mode", "closed") != "create":
+            return
+        self.close_task_detail(force=True)
 
     def _current_project_id(self) -> Optional[int]:
         value = self._current_project_value()
@@ -532,6 +644,98 @@ class TaskPageMixin:
             return False
         return task_due_at < datetime.now()
 
+    def _set_task_detail_metadata(self, task: Dict[str, Any]) -> None:
+        due_alert = self._task_due_alert(task)
+        if due_alert is None:
+            self.due_alert_row.hide()
+            self.due_alert_spacer_label.hide()
+            self.due_alert_value_label.clear()
+        else:
+            severity, message = due_alert
+            self.due_alert_value_label.setText(message)
+            self._apply_due_alert_style(severity)
+            self.due_alert_spacer_label.show()
+            self.due_alert_row.show()
+        self.created_at_value_label.setText(self._format_detail_timestamp(task.get("created_at")))
+        self.updated_at_value_label.setText(self._format_detail_timestamp(task.get("updated_at")))
+        self.completed_at_value_label.setText(self._format_detail_timestamp(task.get("completed_at")) or self.tr("not_completed"))
+        self.complete_button.setVisible(task.get("status") != 3)
+
+    def refresh_current_task_detail_text(self) -> None:
+        if self.selected_task_id is None or not self._is_task_detail_open():
+            return
+        task = self.db.get_task(self.selected_task_id)
+        if not task:
+            return
+        self.task_detail_title_label.setText(self.tr("task_detail_with_id", id=self.selected_task_id))
+        self._set_task_detail_metadata(task)
+        self.refresh_task_detail_history()
+
+    def _selected_task_completed(self) -> bool:
+        if self.selected_task_id is None:
+            return False
+        task = self.db.get_task(self.selected_task_id)
+        return bool(task and task.get("status") == 3)
+
+    def _task_due_alert(self, task: Dict[str, Any]) -> Optional[tuple[str, str]]:
+        if task.get("status") == 3:
+            return None
+        due_date = task.get("due_date")
+        if not due_date:
+            return None
+        if task.get("due_mode") == "all_day":
+            task_due_date = self._task_due_date(task)
+            if task_due_date is None:
+                return None
+            days = (task_due_date - date.today()).days
+            if days < 0:
+                return "danger", self.tr("due_alert_overdue")
+            if days == 0:
+                return "danger", self.tr("due_alert_today")
+            if days <= 3:
+                return "warning", self.tr("due_alert_days_left", days=days)
+            return None
+        try:
+            task_due_at = datetime.strptime(str(due_date), "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            return None
+        remaining = task_due_at - datetime.now()
+        if remaining.total_seconds() < 0:
+            return "danger", self.tr("due_alert_overdue")
+        if remaining < timedelta(hours=24):
+            total_minutes = max(1, ceil(remaining.total_seconds() / 60))
+            hours, minutes = divmod(total_minutes, 60)
+            return "danger", self.tr("due_alert_time_left", hours=hours, minutes=minutes)
+        task_due_date = self._task_due_date(task)
+        if task_due_date is None:
+            return None
+        days = (task_due_date - date.today()).days
+        if 1 <= days <= 3:
+            return "warning", self.tr("due_alert_days_left", days=days)
+        return None
+
+    def _apply_due_alert_style(self, severity: str) -> None:
+        if severity == "danger":
+            foreground = "#ef4444" if resolve_theme(self.theme, QApplication.instance()) != THEME_DARK else "#f87171"
+        else:
+            foreground = "#f59e0b" if resolve_theme(self.theme, QApplication.instance()) != THEME_DARK else "#fbbf24"
+        icon_style = (
+            f"color: {foreground}; border: 1px solid {foreground}; border-radius: 9px; "
+            "font-weight: 700; background: transparent;"
+        )
+        text_style = f"color: {foreground}; font-weight: 600; background: transparent;"
+        self.due_alert_icon_label.setStyleSheet(icon_style)
+        self.due_alert_value_label.setStyleSheet(text_style)
+
+    def _format_detail_timestamp(self, value: object) -> str:
+        if not value:
+            return ""
+        text = str(value)
+        try:
+            return datetime.strptime(text, "%Y-%m-%d %H:%M:%S").strftime("%Y-%m-%d %H:%M")
+        except ValueError:
+            return text
+
     def _apply_overdue_cell_color(self, item: QTableWidgetItem) -> None:
         resolved_theme = resolve_theme(self.theme, QApplication.instance())
         colors = colors_for_theme(self.theme, QApplication.instance())
@@ -572,3 +776,13 @@ class TaskPageMixin:
             if self.task_table.item(row, 0).data(Qt.ItemDataRole.UserRole) == task_id:
                 self.task_table.selectRow(row)
                 return
+
+    def _restore_task_selection(self, task_id: Optional[int]) -> None:
+        self._restoring_task_selection = True
+        try:
+            if task_id is None:
+                self._clear_task_selection()
+            else:
+                self._select_task(task_id)
+        finally:
+            self._restoring_task_selection = False

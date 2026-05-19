@@ -16,6 +16,12 @@ Update it immediately before creating a release commit, not after every local ch
 
 ## Entries
 
+## 1.2.5 - 2026-05-19
+
+- Summary: Refine task details into a richer drawer workflow with safer editing and history access.
+- Changed: Added Markdown-rendered task details with click-to-edit behavior, fixed focus and dirty-field indicators in task detail forms, added due urgency and task metadata to details, moved recent task history into the detail drawer, converted new-task creation and operation history to right-side drawers, required confirmation before discarding edited details or running history undo actions, removed the direct undo shortcut from settings, and refreshed shortcut/config documentation.
+- Verified: Ran Python compile checks, whitespace checks, i18n key checks, config cleanup checks for removed shortcut entries, and offscreen desktop UI smoke checks for history drawer shortcut behavior, dirty-detail confirmations, new-task drawer creation, and stale shortcut cleanup.
+
 ## 1.2.4 - 2026-05-19
 
 - Summary: Add upcoming due filters and overdue due-date highlighting to the task page.

@@ -19,7 +19,6 @@ SHORTCUT_ACTIONS = (
     ("focus_search", "shortcut_focus_search"),
     ("escape_tasks", "shortcut_escape_tasks"),
     ("refresh", "shortcut_refresh"),
-    ("undo", "shortcut_undo"),
     ("history", "shortcut_history"),
     ("save_task", "shortcut_save_task"),
     ("complete_task", "shortcut_complete_task"),

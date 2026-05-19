@@ -8,8 +8,8 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="mindtask",
-    version="1.2.4",
-    author="MindTask Team",
+    version="1.2.5",
+    author="PY Shu",
     description="A small SQLite task manager with CLI and desktop UI",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -30,6 +30,7 @@ setup(
             "flake8>=3.9",
         ],
         "ui": [
+            "markdown-it-py>=2.2,<4",
             "PySide6>=6.5",
             "QtAwesome>=1.4",
         ],

@@ -22,7 +22,6 @@ DEFAULT_UI_SHORTCUTS = {
     "focus_search": "Ctrl+F",
     "escape_tasks": "Esc",
     "refresh": "F5",
-    "undo": "Ctrl+U",
     "history": "Ctrl+H",
     "save_task": "Ctrl+S",
     "complete_task": "Ctrl+Enter",
@@ -101,6 +100,9 @@ def _read_writable_config(config_path: Optional[str] = None) -> tuple[Path, conf
     parser["ui"].setdefault("theme", "system")
     parser["ui"].setdefault("language", "en")
     parser["ui"].pop("due_day_end", None)
+    for action in list(parser["shortcuts"]):
+        if action not in DEFAULT_UI_SHORTCUTS:
+            parser["shortcuts"].pop(action, None)
     for action, sequence in DEFAULT_UI_SHORTCUTS.items():
         parser["shortcuts"].setdefault(action, sequence)
     return path, parser

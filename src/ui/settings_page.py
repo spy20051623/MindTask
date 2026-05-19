@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import __version__
+from .. import __author__, __version__
 from ..core import (
     MindTaskDB,
     save_database_path,
@@ -236,6 +236,8 @@ class SettingsPageMixin(ShortcutSettingsMixin):
         self.about_app_value_label = QLabel("MindTask")
         self.about_version_label = QLabel()
         self.about_version_value_label = QLabel(__version__)
+        self.about_author_value_label = QLabel()
+        self.about_collaboration_value_label = QLabel()
         self.about_config_file_label = QLabel()
         self.about_config_file_value_label = QLabel(self.config_path)
         self.about_database_path_label = QLabel()
@@ -244,6 +246,8 @@ class SettingsPageMixin(ShortcutSettingsMixin):
         for value_label in (
             self.about_app_value_label,
             self.about_version_value_label,
+            self.about_author_value_label,
+            self.about_collaboration_value_label,
             self.about_config_file_value_label,
             self.about_database_path_value_label,
         ):
@@ -257,6 +261,10 @@ class SettingsPageMixin(ShortcutSettingsMixin):
         form.addRow(self.about_database_path_label, self.about_database_path_value_label)
         layout.addLayout(form)
         layout.addStretch()
+        self.about_author_value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.about_collaboration_value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.about_author_value_label)
+        layout.addWidget(self.about_collaboration_value_label)
         return panel
 
     def _settings_scroll_area(self, widget: QWidget) -> QScrollArea:
@@ -284,6 +292,8 @@ class SettingsPageMixin(ShortcutSettingsMixin):
         self.about_settings_title_label.setText(self.tr("settings_about"))
         self.about_app_label.setText(self.tr("application"))
         self.about_version_label.setText(self.tr("version"))
+        self.about_author_value_label.setText(self.tr("designed_by", author=__author__))
+        self.about_collaboration_value_label.setText(self.tr("coauthored_by_codex"))
         self.about_config_file_label.setText(self.tr("config_file"))
         self.about_database_path_label.setText(self.tr("database_path"))
         self.current_database_title_label.setText(self.tr("current_database"))
@@ -504,6 +514,7 @@ class SettingsPageMixin(ShortcutSettingsMixin):
         if not hasattr(self, "about_config_file_value_label"):
             return
         self.about_version_value_label.setText(__version__)
+        self.about_author_value_label.setText(self.tr("designed_by", author=__author__))
         self.about_config_file_value_label.setText(self.config_path)
         self.about_database_path_value_label.setText(self.db.db_path)
 
