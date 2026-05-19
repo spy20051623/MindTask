@@ -2,27 +2,36 @@
 
 from __future__ import annotations
 
+import json
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QRect, QTimer, Qt
-from PySide6.QtGui import QColor, QKeySequence, QShortcut
+from PySide6.QtCore import QEvent, QEasingCurve, QPropertyAnimation, QRect, QSize, QTimer, Qt
+from PySide6.QtGui import QColor, QCursor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QApplication,
     QComboBox,
-    QDialog,
     QFormLayout,
     QFrame,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QStackedWidget,
     QStatusBar,
+    QTableWidget,
     QTableWidgetItem,
+    QTextBrowser,
     QTextEdit,
+    QTreeWidget,
+    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -33,27 +42,30 @@ from ..core import (
     normalize_due_date,
 )
 from .constants import (
+    HISTORY_ENTITY_TRANSLATION_KEYS,
     PRIORITY_LABELS,
     PRIORITY_TRANSLATION_KEYS,
+    HISTORY_ACTION_TRANSLATION_KEYS,
     STATUS_LABELS,
     STATUS_TRANSLATION_KEYS,
     STATUS_VALUES,
 )
 from .dialog_helpers import confirm_question, required_label
-from .dialogs import HistoryDialog, TaskDialog
 from .due_date_editor import DueDateEditor
 from .icons import icon_button, set_action_button_icon, themed_icon
 from .i18n import Translator
+from .markdown import render_markdown_html
 from .project_page import ProjectPageMixin
 from .settings_page import SettingsPageMixin
-from .style import build_app_style, colors_for_theme
+from .style import badge_colors_for_theme, build_app_style, colors_for_theme
 from .task_page import TaskPageMixin
 from .shortcut_editor import SHIFTED_KEY_ALIASES
 
 
-DETAIL_PANEL_MIN_WIDTH = 420
-DETAIL_PANEL_WIDTH = 480
-DETAIL_PANEL_MIN_TABLE_WIDTH = 360
+DETAIL_PANEL_WIDTH = 526
+DETAIL_FIELD_WIDTH = 360
+DETAIL_LABEL_WIDTH = 114
+DETAIL_SECTION_WIDTH = DETAIL_PANEL_WIDTH - 28
 DETAIL_ANIMATION_DURATION_MS = 240
 SIDEBAR_WIDTH = 220
 
@@ -75,6 +87,12 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         self.project_sort_column = 0
         self.project_sort_order = Qt.SortOrder.AscendingOrder
         self.active_search_keyword = ""
+        self._detail_original_values: Dict[str, object] = {}
+        self.detail_mode = "closed"
+        self._restoring_task_selection = False
+        self._restoring_filter_selection = False
+        self._accepted_task_view: Optional[str] = None
+        self._accepted_project_filter: Optional[int] = None
         self.translator = Translator(self.language)
         self._apply_theme_to_app(self.theme)
 
@@ -97,6 +115,8 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
             self.position_sidebar_action_button()
         if hasattr(self, "projects_drawer") and not self.projects_drawer.isHidden():
             self.projects_drawer.setGeometry(self._projects_drawer_open_geometry())
+        if hasattr(self, "history_drawer") and not self.history_drawer.isHidden():
+            self.history_drawer.setGeometry(self._history_drawer_open_geometry())
 
     def _build_layout(self) -> None:
         root = QWidget()
@@ -106,6 +126,7 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         self.page_stack = QStackedWidget()
         self.tasks_page = self._build_tasks_page()
         self._build_projects_drawer_animation()
+        self._build_history_drawer_animation()
         self.settings_page = self._build_settings_page()
         self.page_stack.addWidget(self.tasks_page)
         self.page_stack.addWidget(self.settings_page)
@@ -124,7 +145,6 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
             "focus_search": self.shortcut_focus_search,
             "escape_tasks": self.shortcut_escape_tasks,
             "refresh": self.refresh_all,
-            "undo": self.undo_last_operation,
             "history": self.open_history_dialog,
             "save_task": self.shortcut_save_task,
             "complete_task": self.shortcut_complete_task,
@@ -216,19 +236,23 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         self._set_action_button_icon(self.refresh_button, "fa6s.arrows-rotate", "Ref")
         self._set_action_button_icon(self.history_button, "fa6s.clock-rotate-left", "His")
         self._set_action_button_icon(self.manage_projects_button, "fa6s.sliders", "Mgr")
+        if hasattr(self, "refresh_task_history_button"):
+            self._set_action_button_icon(self.refresh_task_history_button, "fa6s.arrows-rotate", "Ref")
         self._set_action_button_icon(self.close_detail_button, "fa6s.xmark", "X")
         self._set_action_button_icon(self.close_projects_drawer_button, "fa6s.xmark", "X")
+        if hasattr(self, "close_history_drawer_button"):
+            self._set_action_button_icon(self.close_history_drawer_button, "fa6s.xmark", "X")
         self.clear_search_action.setIcon(themed_icon("fa6s.xmark", self.theme))
 
     def _build_detail_panel(self) -> QWidget:
         panel = QFrame()
         panel.setObjectName("DetailPanel")
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setContentsMargins(14, 14, 0, 14)
         layout.setSpacing(10)
 
         header_row = QHBoxLayout()
-        header_row.setContentsMargins(0, 0, 0, 0)
+        header_row.setContentsMargins(0, 0, 14, 0)
         self.task_detail_title_label = self._section_label("")
         self.close_detail_button = self._icon_button("", "fa6s.xmark", "X", self.close_task_detail)
         header_row.addWidget(self.task_detail_title_label)
@@ -244,16 +268,99 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         self.detail_animation_closes = False
 
         self.title_edit = QLineEdit()
+        self.description_container = QWidget()
+        self.description_container.setObjectName("TransparentRow")
+        description_layout = QVBoxLayout(self.description_container)
+        description_layout.setContentsMargins(0, 0, 0, 0)
+        description_layout.setSpacing(0)
+        self.description_preview = QTextBrowser()
+        self.description_preview.setObjectName("MarkdownPreview")
+        self.description_preview.setOpenExternalLinks(True)
+        self.description_preview.document().setDocumentMargin(0)
+        self.description_preview.document().setIndentWidth(16)
+        self.description_preview.setMinimumHeight(140)
+        self.description_preview.viewport().setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.description_preview.installEventFilter(self)
+        self.description_preview.viewport().installEventFilter(self)
         self.description_edit = QTextEdit()
+        self.description_edit.setObjectName("MarkdownEditor")
+        self.description_edit.setMinimumHeight(140)
+        self.description_edit.installEventFilter(self)
+        self.description_edit.viewport().installEventFilter(self)
+        self.description_stack = QStackedWidget()
+        self.description_stack.addWidget(self.description_preview)
+        self.description_stack.addWidget(self.description_edit)
+        description_layout.addWidget(self.description_stack)
         self.status_combo = QComboBox()
         self.priority_combo = QComboBox()
         self.project_combo = QComboBox()
         self.due_editor = DueDateEditor(language=self.language)
+        self.due_editor.setObjectName("DueDateEditor")
+        self.due_alert_row = QWidget()
+        self.due_alert_row.setObjectName("TransparentRow")
+        due_alert_layout = QHBoxLayout(self.due_alert_row)
+        due_alert_layout.setContentsMargins(0, 0, 0, 0)
+        due_alert_layout.setSpacing(6)
+        self.due_alert_icon_label = QLabel("!")
+        self.due_alert_icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.due_alert_icon_label.setFixedSize(18, 18)
+        self.due_alert_value_label = QLabel()
+        self.due_alert_value_label.setObjectName("MutedLabel")
+        due_alert_layout.addWidget(self.due_alert_icon_label)
+        due_alert_layout.addWidget(self.due_alert_value_label)
+        due_alert_layout.addStretch()
+        self.due_alert_row.hide()
+        self.created_at_value_label = QLabel()
+        self.created_at_value_label.setObjectName("MutedLabel")
+        self.updated_at_value_label = QLabel()
+        self.updated_at_value_label.setObjectName("MutedLabel")
+        self.completed_at_value_label = QLabel()
+        self.completed_at_value_label.setObjectName("MutedLabel")
+        self.completed_at_row = QWidget()
+        self.completed_at_row.setObjectName("TransparentRow")
+        completed_at_layout = QHBoxLayout(self.completed_at_row)
+        completed_at_layout.setContentsMargins(0, 0, 0, 0)
+        completed_at_layout.setSpacing(8)
+        completed_at_layout.addWidget(self.completed_at_value_label)
+        completed_at_layout.addStretch()
+        self.task_history_header = QWidget()
+        self.task_history_header.setObjectName("TransparentRow")
+        task_history_header_layout = QHBoxLayout(self.task_history_header)
+        task_history_header_layout.setContentsMargins(0, 0, 0, 0)
+        task_history_header_layout.setSpacing(8)
+        self.task_history_label = self._section_label("")
+        self.refresh_task_history_button = self._icon_button(
+            "",
+            "fa6s.arrows-rotate",
+            "Ref",
+            self.refresh_task_detail_history,
+        )
+        self.refresh_task_history_button.setFixedSize(28, 28)
+        self.refresh_task_history_button.setIconSize(QSize(15, 15))
+        task_history_header_layout.addWidget(self.task_history_label)
+        task_history_header_layout.addStretch()
+        task_history_header_layout.addWidget(self.refresh_task_history_button)
+        self.task_history_tree = QTreeWidget()
+        self.task_history_tree.setObjectName("TaskHistoryTree")
+        self.task_history_tree.setHeaderHidden(True)
+        self.task_history_tree.setRootIsDecorated(True)
+        self.task_history_tree.setAlternatingRowColors(False)
+        self.task_history_tree.setMinimumHeight(130)
+        self.task_history_tree.setMaximumHeight(190)
+
+        self._set_detail_field_widths()
 
         for status, label in STATUS_LABELS.items():
             self.status_combo.addItem(label, status)
         for priority in PRIORITY_LABELS:
             self.priority_combo.addItem("", priority)
+        self._connect_detail_change_signals()
+
+        detail_scroll_content = QWidget()
+        detail_scroll_content.setObjectName("TransparentRow")
+        self.detail_scroll_layout = QVBoxLayout(detail_scroll_content)
+        self.detail_scroll_layout.setContentsMargins(0, 0, 20, 0)
+        self.detail_scroll_layout.setSpacing(10)
 
         form = QFormLayout()
         self.title_label = required_label("")
@@ -262,30 +369,284 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         self.priority_label = QLabel()
         self.project_label = QLabel()
         self.due_label = QLabel()
+        self.due_alert_spacer_label = QLabel()
+        self.created_at_label = QLabel()
+        self.updated_at_label = QLabel()
+        self.completed_at_label = QLabel()
+        self._set_detail_label_widths()
         form.addRow(self.title_label, self.title_edit)
-        form.addRow(self.description_label, self.description_edit)
+        form.addRow(self.description_label, self.description_container)
         form.addRow(self.status_label, self.status_combo)
         form.addRow(self.priority_label, self.priority_combo)
         form.addRow(self.project_label, self.project_combo)
         form.addRow(self.due_label, self.due_editor)
-        layout.addLayout(form)
+        form.addRow(self.due_alert_spacer_label, self.due_alert_row)
+        form.addRow(self.created_at_label, self.created_at_value_label)
+        form.addRow(self.updated_at_label, self.updated_at_value_label)
+        form.addRow(self.completed_at_label, self.completed_at_row)
+        self.detail_scroll_layout.addLayout(form)
+        self.detail_scroll_layout.addWidget(self.task_history_header)
+        self.detail_scroll_layout.addWidget(self.task_history_tree)
+        self.detail_scroll_layout.addStretch()
 
-        button_row = QHBoxLayout()
+        self.detail_action_bar = QWidget()
+        self.detail_action_bar.setObjectName("DetailActionBar")
+        button_row = QHBoxLayout(self.detail_action_bar)
+        button_row.setContentsMargins(0, 10, 14, 0)
+        button_row.setSpacing(8)
         self.save_button = QPushButton()
         self.save_button.setObjectName("PrimaryButton")
         self.save_button.clicked.connect(self.save_selected_task)
+        self.discard_button = QPushButton()
+        self.discard_button.setObjectName("SecondaryButton")
+        self.discard_button.clicked.connect(self.discard_selected_task_changes)
         self.complete_button = QPushButton()
         self.complete_button.setObjectName("SecondaryButton")
         self.complete_button.clicked.connect(self.complete_selected_task)
+        completed_at_layout.addWidget(self.complete_button)
         self.task_delete_button = QPushButton()
         self.task_delete_button.setObjectName("DangerButton")
         self.task_delete_button.clicked.connect(self.delete_selected_task)
         button_row.addWidget(self.save_button)
-        button_row.addWidget(self.complete_button)
+        button_row.addWidget(self.discard_button)
         button_row.addWidget(self.task_delete_button)
-        layout.addLayout(button_row)
 
-        layout.addStretch()
+        self.detail_scroll_area = QScrollArea()
+        self.detail_scroll_area.setObjectName("DetailScrollArea")
+        self.detail_scroll_area.setWidgetResizable(True)
+        self.detail_scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self.detail_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.detail_scroll_area.setWidget(detail_scroll_content)
+        layout.addWidget(self.detail_scroll_area, 1)
+        layout.addWidget(self.detail_action_bar)
+        return panel
+
+    def _connect_detail_change_signals(self) -> None:
+        self.title_edit.textChanged.connect(self._update_detail_field_states)
+        self.description_edit.textChanged.connect(self._update_detail_field_states)
+        self.status_combo.currentIndexChanged.connect(self._update_detail_field_states)
+        self.priority_combo.currentIndexChanged.connect(self._update_detail_field_states)
+        self.project_combo.currentIndexChanged.connect(self._update_detail_field_states)
+        self.due_editor.time_mode_combo.currentIndexChanged.connect(self._update_detail_field_states)
+        self.due_editor.date_edit.dateChanged.connect(self._update_detail_field_states)
+        self.due_editor.time_combo.currentTextChanged.connect(self._update_detail_field_states)
+
+    def _current_detail_values(self) -> Dict[str, object]:
+        try:
+            due_date = self.due_editor.due_value()
+        except ValueError:
+            due_date = "__invalid_due_date__"
+        return {
+            "title": self.title_edit.text(),
+            "description": self.description_edit.toPlainText(),
+            "status": self.status_combo.currentData(),
+            "priority": self.priority_combo.currentData(),
+            "project_id": self.project_combo.currentData(),
+            "due_date": due_date,
+            "due_mode": self.due_editor.due_mode(),
+        }
+
+    def _empty_detail_values(self) -> Dict[str, object]:
+        due_parts = ("none", None, None)
+        return {
+            "title": "",
+            "description": "",
+            "status": 0,
+            "priority": 0,
+            "project_id": self._current_project_id() if hasattr(self, "project_list") else None,
+            "due_date": None,
+            "due_mode": "none",
+            "due_mode_part": due_parts[0],
+            "due_date_part": due_parts[1],
+            "due_time_part": due_parts[2],
+        }
+
+    def _set_detail_original_values(self, task: Dict[str, Any]) -> None:
+        due_mode = task.get("due_mode") or "none"
+        due_parts = self._detail_due_parts(task.get("due_date"), due_mode)
+        self._detail_original_values = {
+            "title": task.get("title") or "",
+            "description": task.get("description") or "",
+            "status": int(task.get("status") or 0),
+            "priority": int(task.get("priority") or 0),
+            "project_id": task.get("project_id"),
+            "due_date": task.get("due_date"),
+            "due_mode": due_mode,
+            "due_mode_part": due_parts[0],
+            "due_date_part": due_parts[1],
+            "due_time_part": due_parts[2],
+        }
+        self._update_detail_field_states()
+
+    def _detail_due_parts(self, due_date: object, due_mode: str) -> tuple[str, Optional[str], Optional[str]]:
+        if not due_date or due_mode == "none":
+            return "none", None, None
+        text = str(due_date)
+        try:
+            due = datetime.strptime(text, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            date_part = text[:10]
+            time_part = text[11:].strip() if due_mode == "exact_time" and len(text) > 11 else None
+            return due_mode, date_part, time_part
+        date_part = due.strftime("%Y-%m-%d")
+        time_part = due.strftime("%H:%M:%S") if due_mode == "exact_time" and due.second else None
+        if due_mode == "exact_time" and time_part is None:
+            time_part = due.strftime("%H:%M")
+        return due_mode, date_part, time_part
+
+    def _update_detail_field_states(self, *_args: object) -> None:
+        if not self._detail_original_values:
+            self._clear_detail_field_states()
+            return
+        values = self._current_detail_values()
+        self._mark_detail_field(self.title_edit, values["title"] != self._detail_original_values.get("title"))
+        self._mark_detail_field(self.description_edit, values["description"] != self._detail_original_values.get("description"))
+        self._mark_detail_field(
+            self.description_preview,
+            values["description"] != self._detail_original_values.get("description"),
+        )
+        self._mark_detail_field(self.status_combo, values["status"] != self._detail_original_values.get("status"))
+        self._mark_detail_field(self.priority_combo, values["priority"] != self._detail_original_values.get("priority"))
+        self._mark_detail_field(self.project_combo, values["project_id"] != self._detail_original_values.get("project_id"))
+        due_mode_part, due_date_part, due_time_part = self.due_editor.due_parts()
+        self._mark_detail_field(
+            self.due_editor.time_mode_combo,
+            due_mode_part != self._detail_original_values.get("due_mode_part"),
+        )
+        self._mark_detail_field(
+            self.due_editor.date_edit,
+            due_date_part != self._detail_original_values.get("due_date_part"),
+        )
+        self._mark_detail_field(
+            self.due_editor.time_combo,
+            due_time_part != self._detail_original_values.get("due_time_part"),
+        )
+        self._set_detail_state_property(self.title_edit, "detailInvalid", not self.title_edit.text().strip())
+        self._update_due_invalid_states()
+
+    def _has_detail_changes(self) -> bool:
+        if not self._detail_original_values:
+            return False
+        values = self._current_detail_values()
+        return any(
+            values.get(key) != self._detail_original_values.get(key)
+            for key in ("title", "description", "status", "priority", "project_id", "due_date", "due_mode")
+        )
+
+    def _clear_detail_field_states(self) -> None:
+        for widget in (
+            self.title_edit,
+            self.description_edit,
+            self.description_preview,
+            self.status_combo,
+            self.priority_combo,
+            self.project_combo,
+            self.due_editor,
+            self.due_editor.time_mode_combo,
+            self.due_editor.date_edit,
+            self.due_editor.time_combo,
+        ):
+            self._mark_detail_field(widget, False)
+            self._set_detail_state_property(widget, "detailInvalid", False)
+
+    def _mark_detail_field(self, widget: QWidget, modified: bool) -> None:
+        self._set_detail_state_property(widget, "detailModified", modified)
+
+    def _update_due_invalid_states(self) -> None:
+        date_invalid, time_invalid = self.due_editor.invalid_parts()
+        self._set_detail_state_property(self.due_editor.date_edit, "detailInvalid", date_invalid)
+        self._set_detail_state_property(self.due_editor.time_combo, "detailInvalid", time_invalid)
+
+    def _set_detail_state_property(self, widget: QWidget, name: str, value: bool) -> None:
+        if widget.property(name) == value:
+            return
+        widget.setProperty(name, value)
+        widget.style().unpolish(widget)
+        widget.style().polish(widget)
+        widget.update()
+
+    def _set_detail_field_widths(self) -> None:
+        for widget in (
+            self.title_edit,
+            self.description_container,
+            self.status_combo,
+            self.priority_combo,
+            self.project_combo,
+            self.due_editor,
+            self.due_alert_row,
+            self.completed_at_row,
+        ):
+            widget.setMaximumWidth(DETAIL_FIELD_WIDTH)
+            widget.setSizePolicy(QSizePolicy.Policy.Expanding, widget.sizePolicy().verticalPolicy())
+        for widget in (self.task_history_header, self.task_history_tree):
+            widget.setMaximumWidth(DETAIL_SECTION_WIDTH)
+            widget.setSizePolicy(QSizePolicy.Policy.Expanding, widget.sizePolicy().verticalPolicy())
+
+    def _set_detail_label_widths(self) -> None:
+        for label in (
+            self.title_label,
+            self.description_label,
+            self.status_label,
+            self.priority_label,
+            self.project_label,
+            self.due_label,
+            self.due_alert_spacer_label,
+            self.created_at_label,
+            self.updated_at_label,
+            self.completed_at_label,
+        ):
+            label.setFixedWidth(DETAIL_LABEL_WIDTH)
+
+    def _build_history_drawer(self) -> QFrame:
+        panel = QFrame()
+        panel.setObjectName("DetailPanel")
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(12)
+
+        header = QWidget()
+        header.setObjectName("TransparentRow")
+        header_row = QHBoxLayout(header)
+        header_row.setContentsMargins(0, 0, 0, 0)
+        header_row.setSpacing(8)
+        self.history_drawer_title_label = self._section_label("")
+        header_row.addWidget(self.history_drawer_title_label)
+        header_row.addStretch()
+        self.close_history_drawer_button = self._icon_button("", "fa6s.xmark", "X", self.close_history_drawer)
+        header_row.addWidget(self.close_history_drawer_button)
+        layout.addWidget(header)
+
+        self.history_drawer_table = QTableWidget(0, 6)
+        self.history_drawer_table.setObjectName("TaskTable")
+        self.history_drawer_table.setHorizontalHeaderLabels(["ID", "", "", "", "", ""])
+        self.history_drawer_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.history_drawer_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.history_drawer_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.history_drawer_table.verticalHeader().setVisible(False)
+        self.history_drawer_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.history_drawer_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.history_drawer_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.history_drawer_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.history_drawer_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        self.history_drawer_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        layout.addWidget(self.history_drawer_table, 1)
+
+        button_row = QHBoxLayout()
+        button_row.setContentsMargins(0, 0, 0, 0)
+        button_row.setSpacing(8)
+        self.history_undo_latest_button = QPushButton()
+        self.history_undo_latest_button.setObjectName("SecondaryButton")
+        self.history_undo_latest_button.clicked.connect(self.undo_latest_from_history_drawer)
+        self.history_undo_to_selected_button = QPushButton()
+        self.history_undo_to_selected_button.setObjectName("DangerButton")
+        self.history_undo_to_selected_button.clicked.connect(self.undo_to_selected_from_history_drawer)
+        self.history_undo_warning_label = QLabel()
+        self.history_undo_warning_label.setObjectName("WarningLabel")
+        button_row.addWidget(self.history_undo_latest_button)
+        button_row.addWidget(self.history_undo_to_selected_button)
+        button_row.addWidget(self.history_undo_warning_label)
+        button_row.addStretch()
+        layout.addLayout(button_row)
         return panel
 
     def _build_projects_drawer_animation(self) -> None:
@@ -294,6 +655,13 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         self.projects_drawer_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
         self.projects_drawer_animation_opens = False
         self.projects_drawer_animation_closes = False
+
+    def _build_history_drawer_animation(self) -> None:
+        self.history_drawer_animation = QPropertyAnimation(self.history_drawer, b"geometry", self)
+        self.history_drawer_animation.setDuration(DETAIL_ANIMATION_DURATION_MS)
+        self.history_drawer_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.history_drawer_animation_opens = False
+        self.history_drawer_animation_closes = False
 
     def _section_label(self, text: str) -> QLabel:
         label = QLabel(text)
@@ -325,16 +693,32 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         )
         self._update_task_sort_indicator()
         self.empty_label.setText(self.tr("no_tasks"))
-        self.task_detail_title_label.setText(self.tr("task_detail"))
+        self.task_detail_title_label.setText(self.tr("new_task") if self.detail_mode == "create" else self.tr("task_detail"))
         self.title_label.setText(f'{self.tr("title")} <span style="color:#dc2626;">*</span>')
-        self.description_label.setText(self.tr("description"))
+        self.description_label.setText(self.tr("details"))
         self.status_label.setText(self.tr("status"))
         self.priority_label.setText(self.tr("priority"))
         self.project_label.setText(self.tr("project"))
         self.due_label.setText(self.tr("due"))
-        self.save_button.setText(self.tr("save"))
-        self.complete_button.setText(self.tr("completed"))
+        self.created_at_label.setText(self.tr("created_at"))
+        self.updated_at_label.setText(self.tr("updated_at"))
+        self.completed_at_label.setText(self.tr("completed_at"))
+        self.task_history_label.setText(self.tr("task_history"))
+        self.refresh_task_history_button.setToolTip(self.tr("refresh"))
+        self.refresh_task_history_button.setAccessibleName(self.tr("refresh"))
+        self.save_button.setText(self.tr("create_task") if self.detail_mode == "create" else self.tr("save"))
+        self.discard_button.setText(self.tr("cancel"))
+        self.complete_button.setText(self.tr("mark_done"))
         self.task_delete_button.setText(self.tr("delete"))
+        self.history_drawer_title_label.setText(self.tr("operation_history"))
+        self.close_history_drawer_button.setToolTip(self.tr("close"))
+        self.close_history_drawer_button.setAccessibleName(self.tr("close"))
+        self.history_drawer_table.setHorizontalHeaderLabels(
+            ["ID", self.tr("created"), self.tr("action"), self.tr("entity"), self.tr("state"), self.tr("undone")]
+        )
+        self.history_undo_latest_button.setText(self.tr("undo_latest"))
+        self.history_undo_to_selected_button.setText(self.tr("undo_to_selected"))
+        self.history_undo_warning_label.setText(self.tr("undo_warning"))
 
         self.projects_title_label.setText(self.tr("projects"))
         self.close_projects_drawer_button.setToolTip(self.tr("close"))
@@ -350,6 +734,7 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         self.retranslate_settings_ui()
         self._retranslate_choice_controls()
         self.due_editor.retranslate(self.language)
+        self.refresh_current_task_detail_text()
 
     def _retranslate_choice_controls(self) -> None:
         current_status = self.status_combo.currentData()
@@ -370,10 +755,13 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         if current_priority is not None:
             self._set_priority_combo(int(current_priority))
 
-    def refresh_all(self) -> None:
+    def refresh_all(self, force_detail: bool = False) -> bool:
+        if not self.confirm_task_detail_transition(force=force_detail):
+            return False
         self.refresh_projects()
         self.refresh_project_table()
-        self.refresh_tasks()
+        self.refresh_tasks(force_detail=True)
+        return True
 
     def switch_page(self, index: int) -> None:
         index = max(0, min(index, self.page_stack.count() - 1))
@@ -392,8 +780,11 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
     def open_projects_drawer(self) -> None:
         if not self._is_tasks_page() or self._is_projects_drawer_open():
             return
+        if self._is_history_drawer_open():
+            self.close_history_drawer()
         if self._is_task_detail_open() or not self.detail_panel.isHidden():
-            self.close_task_detail(clear_selection=False)
+            if not self.close_task_detail(clear_selection=False):
+                return
         self.projects_drawer_animation.stop()
         if self.projects_drawer_animation_opens or self.projects_drawer_animation_closes:
             self.projects_drawer_animation.finished.disconnect()
@@ -439,12 +830,74 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         self.projects_drawer_animation_closes = False
 
     def _projects_drawer_open_geometry(self) -> QRect:
-        sidebar_width = self.tasks_splitter.sizes()[0] if self.tasks_splitter.sizes() else SIDEBAR_WIDTH
-        width = max(0, self.tasks_page_container.width() - sidebar_width)
-        return QRect(sidebar_width, 0, width, self.tasks_page_container.height())
+        width = max(0, self.tasks_page_container.width() - SIDEBAR_WIDTH)
+        return QRect(SIDEBAR_WIDTH, 0, width, self.tasks_page_container.height())
 
     def _projects_drawer_hidden_geometry(self) -> QRect:
         open_geometry = self._projects_drawer_open_geometry()
+        return QRect(self.tasks_page_container.width(), 0, open_geometry.width(), open_geometry.height())
+
+    def open_history_drawer(self) -> None:
+        if not self._is_tasks_page():
+            self.switch_page(0)
+        if self._is_history_drawer_open():
+            self.history_drawer.raise_()
+            return
+        if self._is_projects_drawer_open():
+            self.close_projects_drawer()
+        if self._is_task_detail_open() or not self.detail_panel.isHidden():
+            if not self.close_task_detail():
+                return
+        self.history_drawer_animation.stop()
+        if self.history_drawer_animation_opens or self.history_drawer_animation_closes:
+            self.history_drawer_animation.finished.disconnect()
+            self.history_drawer_animation_opens = False
+            self.history_drawer_animation_closes = False
+        self.history_drawer.show()
+        self.refresh_history_drawer()
+        self.history_drawer.raise_()
+        start_geometry = self._history_drawer_hidden_geometry()
+        self.history_drawer.setGeometry(start_geometry)
+        self.history_drawer_animation.setStartValue(start_geometry)
+        self.history_drawer_animation.setEndValue(self._history_drawer_open_geometry())
+        self.history_drawer_animation.finished.connect(self._finish_open_history_drawer)
+        self.history_drawer_animation_opens = True
+        self.history_drawer_animation.start()
+
+    def close_history_drawer(self) -> None:
+        if not hasattr(self, "history_drawer") or self.history_drawer.isHidden():
+            return
+        self.history_drawer_animation.stop()
+        if self.history_drawer_animation_opens:
+            self.history_drawer_animation.finished.disconnect()
+            self.history_drawer_animation_opens = False
+        self.history_drawer_animation.setStartValue(self.history_drawer.geometry())
+        self.history_drawer_animation.setEndValue(self._history_drawer_hidden_geometry())
+        if self.history_drawer_animation_closes:
+            self.history_drawer_animation.finished.disconnect()
+        self.history_drawer_animation.finished.connect(self._hide_history_drawer_after_animation)
+        self.history_drawer_animation_closes = True
+        self.history_drawer_animation.start()
+
+    def _finish_open_history_drawer(self) -> None:
+        self.history_drawer.setGeometry(self._history_drawer_open_geometry())
+        if self.history_drawer_animation_opens:
+            self.history_drawer_animation.finished.disconnect()
+        self.history_drawer_animation_opens = False
+
+    def _hide_history_drawer_after_animation(self) -> None:
+        self.history_drawer.hide()
+        self.history_drawer.setGeometry(self._history_drawer_hidden_geometry())
+        if self.history_drawer_animation_closes:
+            self.history_drawer_animation.finished.disconnect()
+        self.history_drawer_animation_closes = False
+
+    def _history_drawer_open_geometry(self) -> QRect:
+        width = max(0, self.tasks_page_container.width() - SIDEBAR_WIDTH)
+        return QRect(SIDEBAR_WIDTH, 0, width, self.tasks_page_container.height())
+
+    def _history_drawer_hidden_geometry(self) -> QRect:
+        open_geometry = self._history_drawer_open_geometry()
         return QRect(self.tasks_page_container.width(), 0, open_geometry.width(), open_geometry.height())
 
     def open_task_detail(self) -> None:
@@ -459,24 +912,19 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         self.detail_panel.show()
         self.detail_panel.setMinimumWidth(0)
         self.detail_panel.setMaximumWidth(0)
-        sidebar_width, total_width = self._task_detail_animation_base(reserve_detail_handle=True)
-        table_min_width = self._task_table_minimum_animation_width()
-        available_detail_width = max(0, total_width - sidebar_width - table_min_width)
-        detail_width = min(DETAIL_PANEL_WIDTH, available_detail_width)
-        if detail_width <= 0:
-            detail_width = min(DETAIL_PANEL_WIDTH, max(0, total_width - sidebar_width))
-        self._detail_animation_sidebar_width = sidebar_width
-        self._detail_animation_total_width = total_width
+        self._detail_animation_total_width = self.tasks_splitter.width()
         self._apply_task_detail_animation_width(0)
         self.detail_animation.setStartValue(max(0, self.detail_panel.maximumWidth()))
-        self.detail_animation.setEndValue(detail_width)
+        self.detail_animation.setEndValue(DETAIL_PANEL_WIDTH)
         self.detail_animation.finished.connect(self._finish_open_task_detail)
         self.detail_animation_opens = True
         self.detail_animation.start()
 
-    def close_task_detail(self, clear_selection: bool = True) -> None:
+    def close_task_detail(self, clear_selection: bool = True, force: bool = False) -> bool:
         if not hasattr(self, "detail_panel"):
-            return
+            return True
+        if not self.confirm_task_detail_transition(force=force):
+            return False
         if clear_selection:
             self.selected_task_id = None
             self._clear_task_selection()
@@ -484,16 +932,14 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
 
         if self.detail_panel.isHidden():
             self.set_task_table_compact_mode(False)
-            return
+            return True
 
         self.detail_animation.stop()
         if self.detail_animation_opens:
             self.detail_animation.finished.disconnect()
             self.detail_animation_opens = False
         self.detail_panel.setMinimumWidth(0)
-        sidebar_width, total_width = self._task_detail_animation_base()
-        self._detail_animation_sidebar_width = sidebar_width
-        self._detail_animation_total_width = total_width
+        self._detail_animation_total_width = self.tasks_splitter.width()
         self.detail_animation.setStartValue(max(0, self.detail_panel.width()))
         self.detail_animation.setEndValue(0)
         if self.detail_animation_closes:
@@ -501,33 +947,32 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         self.detail_animation.finished.connect(self._hide_task_detail_after_animation)
         self.detail_animation_closes = True
         self.detail_animation.start()
+        return True
 
-    def _task_detail_animation_base(self, reserve_detail_handle: bool = False) -> tuple[int, int]:
-        sizes = self.tasks_splitter.sizes()
-        if not sizes:
-            return SIDEBAR_WIDTH, self.tasks_splitter.width()
-        total_width = sum(sizes)
-        if reserve_detail_handle:
-            total_width = max(0, total_width - self.tasks_splitter.handleWidth())
-        return sizes[0], total_width
+    def confirm_task_detail_transition(self, force: bool = False) -> bool:
+        if force or not self._is_task_detail_open() or not self._has_detail_changes():
+            return True
+        return confirm_question(
+            self,
+            self.tr("discard_task_changes"),
+            self.tr("discard_task_changes_confirm"),
+            self.translator,
+        )
 
-    def _task_table_minimum_animation_width(self) -> int:
-        table_panel = self.tasks_splitter.widget(1)
-        return max(DETAIL_PANEL_MIN_TABLE_WIDTH, table_panel.minimumSizeHint().width())
+    def confirm_discard_task_detail_changes(self) -> bool:
+        return self.confirm_task_detail_transition()
 
     def _apply_task_detail_animation_width(self, value: object) -> None:
-        if not hasattr(self, "_detail_animation_sidebar_width"):
+        if not hasattr(self, "_detail_animation_total_width"):
             return
-        sidebar_width = self._detail_animation_sidebar_width
         total_width = self._detail_animation_total_width
-        detail_width = max(0, min(int(value), total_width - sidebar_width))
-        table_width = max(0, total_width - sidebar_width - detail_width)
-        self.tasks_splitter.setSizes([sidebar_width, table_width, detail_width])
+        detail_width = max(0, min(int(value), DETAIL_PANEL_WIDTH, total_width - SIDEBAR_WIDTH))
+        table_width = max(0, total_width - SIDEBAR_WIDTH - detail_width)
+        self.tasks_splitter.setSizes([SIDEBAR_WIDTH, table_width, detail_width])
 
     def _finish_open_task_detail(self) -> None:
-        target_width = int(self.detail_animation.endValue())
-        self._apply_task_detail_animation_width(target_width)
-        self.detail_panel.setMinimumWidth(min(DETAIL_PANEL_MIN_WIDTH, target_width))
+        self._apply_task_detail_animation_width(DETAIL_PANEL_WIDTH)
+        self.detail_panel.setMinimumWidth(min(DETAIL_PANEL_WIDTH, max(0, self.tasks_splitter.width() - SIDEBAR_WIDTH)))
         if self.detail_animation_opens:
             self.detail_animation.finished.disconnect()
         self.detail_animation_opens = False
@@ -538,34 +983,63 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         self.detail_panel.setMaximumWidth(0)
         self.detail_panel.setMinimumWidth(0)
         self.set_task_table_compact_mode(False)
+        if self.selected_task_id is None:
+            self.detail_mode = "closed"
         if self.detail_animation_closes:
             self.detail_animation.finished.disconnect()
         self.detail_animation_closes = False
 
     def open_new_task_dialog(self) -> None:
-        dialog = TaskDialog(self.db.get_projects(), self.language, parent=self)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        if not self.confirm_task_detail_transition():
             return
+        self.open_new_task_detail()
 
-        data = dialog.task_data()
-        try:
-            task_id = self.db.create_task(**data)
-        except ValueError as exc:
-            QMessageBox.warning(self, self.tr("invalid_task"), str(exc))
-            return
+    def open_new_task_detail(self) -> None:
+        self.selected_task_id = None
+        self._clear_task_selection()
+        self.detail_mode = "create"
+        self._populate_new_task_detail()
+        self.open_task_detail()
+        self.title_edit.setFocus(Qt.FocusReason.ShortcutFocusReason)
 
-        self.refresh_all()
-        self._select_task(task_id)
+    def _populate_new_task_detail(self) -> None:
+        self.task_detail_title_label.setText(self.tr("new_task"))
+        self.title_edit.clear()
+        self.description_edit.clear()
+        self._show_description_preview()
+        self._set_status_combo(0)
+        self._set_priority_combo(0)
+        self._set_project_combo(self._current_project_id() if hasattr(self, "project_list") else None)
+        self.due_editor.clear()
+        self._detail_original_values = self._empty_detail_values()
+        self._set_create_detail_mode(True)
+        self._update_detail_field_states()
 
     def save_selected_task(self) -> None:
-        if self.selected_task_id is None:
+        if not self.title_edit.text().strip():
+            self._update_detail_field_states()
+            QMessageBox.warning(self, self.tr("invalid_task"), self.tr("title_required"))
             return
 
-        due_date = self.due_editor.due_value()
+        date_invalid, time_invalid = self.due_editor.invalid_parts()
+        if date_invalid or time_invalid:
+            self._update_detail_field_states()
+            message = self.tr("invalid_date") if date_invalid else self.tr("invalid_time")
+            QMessageBox.warning(self, self.tr("invalid_due_date"), message)
+            return
+
         try:
+            due_date = self.due_editor.due_value()
             normalize_due_date(due_date)
         except ValueError as exc:
             QMessageBox.warning(self, self.tr("invalid_due_date"), str(exc))
+            return
+
+        if self.detail_mode == "create":
+            self.create_task_from_detail(due_date)
+            return
+
+        if self.selected_task_id is None:
             return
 
         changed = self.db.update_task(
@@ -582,36 +1056,286 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
             QMessageBox.warning(self, self.tr("save_failed"), self.tr("task_not_found"))
             return
 
-        self.refresh_all()
-        self.close_task_detail()
+        self.refresh_all(force_detail=True)
+        self.close_task_detail(force=True)
 
-    def complete_selected_task(self) -> None:
+    def create_task_from_detail(self, due_date: Optional[str]) -> None:
+        try:
+            task_id = self.db.create_task(
+                title=self.title_edit.text().strip(),
+                description=self.description_edit.toPlainText().strip(),
+                status=0,
+                priority=self.priority_combo.currentData(),
+                project_id=self.project_combo.currentData(),
+                due_date=due_date,
+                due_mode=self.due_editor.due_mode(),
+            )
+        except ValueError as exc:
+            QMessageBox.warning(self, self.tr("invalid_task"), str(exc))
+            return
+        self.detail_mode = "edit"
+        self.selected_task_id = task_id
+        self.refresh_all(force_detail=True)
+        self._select_task(task_id)
+
+    def _show_description_editor(self) -> None:
+        self.description_stack.setCurrentWidget(self.description_edit)
+        self.description_edit.setFocus(Qt.FocusReason.MouseFocusReason)
+
+    def _show_description_preview(self) -> None:
+        self._update_description_preview()
+        self.description_stack.setCurrentWidget(self.description_preview)
+        self.description_preview.viewport().setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+
+    def _is_description_editing(self) -> bool:
+        return self.description_stack.currentWidget() == self.description_edit
+
+    def _update_description_preview(self) -> None:
+        self.description_preview.setHtml(render_markdown_html(self.description_edit.toPlainText()))
+        self._compact_description_preview_lists()
+
+    def _compact_description_preview_lists(self) -> None:
+        seen_lists = set()
+        block = self.description_preview.document().firstBlock()
+        while block.isValid():
+            text_list = block.textList()
+            if text_list is not None and id(text_list) not in seen_lists:
+                seen_lists.add(id(text_list))
+                list_format = text_list.format()
+                list_format.setIndent(max(1, list_format.indent()))
+                text_list.setFormat(list_format)
+            block = block.next()
+
+    def eventFilter(self, watched: object, event: QEvent) -> bool:
+        if watched == self.description_preview.viewport() and event.type() == QEvent.Type.MouseButtonPress:
+            if self.description_preview.anchorAt(event.position().toPoint()):
+                return False
+            self._show_description_editor()
+            return True
+        if watched in (self.description_preview, self.description_preview.viewport()) and event.type() == QEvent.Type.KeyPress:
+            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self._show_description_editor()
+                return True
+        if watched in (self.description_edit, self.description_edit.viewport()) and event.type() == QEvent.Type.FocusOut:
+            QTimer.singleShot(0, self._show_description_preview_if_editing)
+        return super().eventFilter(watched, event)
+
+    def _show_description_preview_if_editing(self) -> None:
+        if self._is_description_editing():
+            self._show_description_preview()
+
+    def refresh_task_detail_history(self) -> None:
+        self.task_history_tree.clear()
         if self.selected_task_id is None:
             return
+        rows = self.db.get_task_history(self.selected_task_id, limit=10, include_undone=True)
+        if not rows:
+            item = QTreeWidgetItem([self.tr("no_task_history")])
+            item.setDisabled(True)
+            self.task_history_tree.addTopLevelItem(item)
+            return
+        for history in rows:
+            changes = self._task_history_changes(history)
+            summary = self._task_history_summary(history, changes)
+            root = QTreeWidgetItem([summary])
+            root.setData(0, Qt.ItemDataRole.UserRole, history.get("id"))
+            self.task_history_tree.addTopLevelItem(root)
+            if not changes:
+                root.addChild(QTreeWidgetItem([self.tr("no_field_changes")]))
+                continue
+            for label, before, after in changes:
+                if label == self.tr("details"):
+                    root.addChild(QTreeWidgetItem([self.tr("details_changed")]))
+                else:
+                    root.addChild(QTreeWidgetItem([self.tr("field_changed", field=label, before=before, after=after)]))
+        self.task_history_tree.expandToDepth(0)
+
+    def _task_history_summary(self, history: Dict[str, Any], changes: List[tuple[str, str, str]]) -> str:
+        created_at = self._format_detail_timestamp(history.get("created_at"))
+        action = self.tr(HISTORY_ACTION_TRANSLATION_KEYS.get(str(history.get("action")), str(history.get("action"))))
+        if history.get("undone_at"):
+            action = f"{action} / {self.tr('undone')}"
+        if not changes:
+            return f"{created_at}  {action}"
+        fields = ", ".join(change[0] for change in changes[:3])
+        if len(changes) > 3:
+            fields = self.tr("task_history_fields_more", fields=fields, count=len(changes) - 3)
+        return f"{created_at}  {action}  {fields}"
+
+    def _task_history_changes(self, history: Dict[str, Any]) -> List[tuple[str, str, str]]:
+        before = self._history_task_snapshot(history.get("before_json"))
+        after = self._history_task_snapshot(history.get("after_json"))
+        changes: List[tuple[str, str, str]] = []
+        fields = (
+            ("title", self.tr("title")),
+            ("description", self.tr("details")),
+            ("status", self.tr("status")),
+            ("priority", self.tr("priority")),
+            ("project_id", self.tr("project")),
+            ("due", self.tr("due")),
+        )
+        for key, label in fields:
+            before_value = self._task_history_field_value(before, key)
+            after_value = self._task_history_field_value(after, key)
+            if before_value != after_value:
+                changes.append((label, before_value, after_value))
+        return changes
+
+    def _history_task_snapshot(self, value: object) -> Optional[Dict[str, Any]]:
+        if not value:
+            return None
+        try:
+            data = json.loads(str(value))
+        except json.JSONDecodeError:
+            return None
+        task = data.get("task") if isinstance(data, dict) else None
+        return task if isinstance(task, dict) else None
+
+    def _task_history_field_value(self, task: Optional[Dict[str, Any]], field: str) -> str:
+        if task is None:
+            return self.tr("none")
+        if field == "status":
+            return self.tr(STATUS_TRANSLATION_KEYS.get(int(task.get("status") or 0), "status_not_started"))
+        if field == "priority":
+            return self.tr(PRIORITY_TRANSLATION_KEYS.get(int(task.get("priority") or 0), "priority_none"))
+        if field == "project_id":
+            project_id = task.get("project_id")
+            if project_id is None:
+                return self.tr("none")
+            for project in self.db.get_projects():
+                if project.get("id") == project_id:
+                    return project.get("name") or f"#{project_id}"
+            return f"#{project_id}"
+        if field == "due":
+            due_date = task.get("due_date")
+            due_mode = task.get("due_mode") or "none"
+            if not due_date or due_mode == "none":
+                return self.tr("none")
+            if due_mode == "all_day":
+                return f"{str(due_date)[:10]} {self.tr('all_day')}"
+            return str(due_date)
+        value = task.get(field)
+        if value in (None, ""):
+            return self.tr("none")
+        return str(value)
+
+    def complete_selected_task(self) -> None:
+        if self.selected_task_id is None or self.detail_mode != "edit":
+            return
+        task = self.db.get_task(self.selected_task_id)
+        if task and task.get("status") == 3:
+            return
         self.db.complete_task(self.selected_task_id)
-        self.refresh_all()
-        self.close_task_detail()
+        self.refresh_all(force_detail=True)
+        self.close_task_detail(force=True)
 
     def delete_selected_task(self) -> None:
-        if self.selected_task_id is None:
+        if self.selected_task_id is None or self.detail_mode != "edit":
             return
         if not confirm_question(self, self.tr("delete_task"), self.tr("delete_task_confirm"), self.translator):
             return
         self.db.delete_task(self.selected_task_id)
-        self.refresh_all()
-        self.close_task_detail()
+        self.refresh_all(force_detail=True)
+        self.close_task_detail(force=True)
 
-    def undo_last_operation(self) -> None:
+    def open_history_dialog(self) -> None:
+        if self._is_tasks_page() and self._is_history_drawer_open():
+            self.close_history_drawer()
+            return
+        self.open_history_drawer()
+
+    def refresh_history_drawer(self) -> None:
+        rows = self.db.get_history(limit=100, include_undone=True)
+        self.history_drawer_table.setRowCount(len(rows))
+        for row_index, history in enumerate(rows):
+            entity_id = f"#{history['entity_id']}" if history.get("entity_id") is not None else ""
+            action = history["action"]
+            entity_type = history["entity_type"]
+            values = [
+                history["id"],
+                history["created_at"],
+                self.tr(HISTORY_ACTION_TRANSLATION_KEYS.get(action, action)),
+                f"{self.tr(HISTORY_ENTITY_TRANSLATION_KEYS.get(entity_type, entity_type))}{entity_id}",
+                self.tr("undone") if history.get("undone_at") else self.tr("active"),
+                history.get("undone_at") or "",
+            ]
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(str(value))
+                colors = colors_for_theme(self.theme, QApplication.instance())
+                item.setForeground(QColor(colors["muted_text"] if history.get("undone_at") else colors["text"]))
+                item.setBackground(QColor(colors["panel_bg"] if row_index % 2 else colors["input_bg"]))
+                if column == 0:
+                    item.setData(Qt.ItemDataRole.UserRole, history["id"])
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                if column == 4:
+                    history_colors = badge_colors_for_theme(self.theme, QApplication.instance())["history"]
+                    badge = history_colors["undone" if history.get("undone_at") else "active"]
+                    item.setForeground(QColor(badge[0]))
+                    item.setBackground(QColor(badge[1]))
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.history_drawer_table.setItem(row_index, column, item)
+        self.history_drawer_table.resizeRowsToContents()
+        self.history_undo_latest_button.setEnabled(any(not row.get("undone_at") for row in rows))
+        self.history_undo_to_selected_button.setEnabled(bool(rows))
+
+    def undo_latest_from_history_drawer(self) -> None:
+        if not confirm_question(
+            self,
+            self.tr("undo_latest"),
+            self.tr("undo_latest_confirm"),
+            self.translator,
+        ):
+            return
         history = self.db.undo_last_operation()
         if not history:
             QMessageBox.information(self, self.tr("undo"), self.tr("no_operation_to_undo"))
+            self.refresh_history_drawer()
             return
-        self.refresh_all()
+        self.refresh_all(force_detail=True)
+        self.refresh_history_drawer()
 
-    def open_history_dialog(self) -> None:
-        dialog = HistoryDialog(self.db, self.theme, self.language, parent=self)
-        dialog.history_changed.connect(self.refresh_all)
-        dialog.exec()
+    def undo_to_selected_from_history_drawer(self) -> None:
+        history_id = self._selected_history_drawer_id()
+        if history_id is None:
+            QMessageBox.information(self, self.tr("history"), self.tr("select_history_first"))
+            return
+
+        selected = self._selected_history_drawer_row()
+        if selected is not None and selected.get("undone_at"):
+            QMessageBox.information(self, self.tr("history"), self.tr("selected_history_undone"))
+            return
+
+        if not confirm_question(
+            self,
+            self.tr("undo_to_selected"),
+            self.tr("undo_to_selected_confirm"),
+            self.translator,
+        ):
+            return
+
+        undone = self.db.undo_operations_until(history_id)
+        if not undone:
+            QMessageBox.information(self, self.tr("undo"), self.tr("no_operation_was_undone"))
+            self.refresh_history_drawer()
+            return
+
+        self.refresh_all(force_detail=True)
+        self.refresh_history_drawer()
+
+    def _selected_history_drawer_id(self) -> Optional[int]:
+        rows = self.history_drawer_table.selectionModel().selectedRows()
+        if not rows:
+            return None
+        return int(self.history_drawer_table.item(rows[0].row(), 0).data(Qt.ItemDataRole.UserRole))
+
+    def _selected_history_drawer_row(self) -> Optional[Dict[str, Any]]:
+        history_id = self._selected_history_drawer_id()
+        if history_id is None:
+            return None
+        for row in self.db.get_history(limit=100, include_undone=True):
+            if row["id"] == history_id:
+                return row
+        return None
 
     def _apply_theme_to_app(self, theme: str) -> None:
         app = QApplication.instance()
@@ -620,12 +1344,49 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
             app.setStyleSheet(build_app_style(theme, app))
 
     def _clear_detail_panel(self) -> None:
+        self._detail_original_values = {}
+        self.detail_mode = "closed"
         self.title_edit.clear()
         self.description_edit.clear()
+        self._show_description_preview()
         self.status_combo.setCurrentIndex(0)
         self.priority_combo.setCurrentIndex(0)
         self.project_combo.setCurrentIndex(0)
         self.due_editor.clear()
+        self.task_detail_title_label.setText(self.tr("task_detail"))
+        self.due_alert_value_label.clear()
+        self.due_alert_spacer_label.hide()
+        self.due_alert_row.hide()
+        self.created_at_value_label.clear()
+        self.updated_at_value_label.clear()
+        self.completed_at_value_label.clear()
+        self.complete_button.show()
+        self.task_history_tree.clear()
+        self._clear_detail_field_states()
+        self._set_create_detail_mode(False)
+
+    def _set_create_detail_mode(self, create_mode: bool) -> None:
+        self.status_label.setVisible(not create_mode)
+        self.status_combo.setVisible(not create_mode)
+        for widget in (
+            self.due_alert_spacer_label,
+            self.due_alert_row,
+            self.created_at_label,
+            self.created_at_value_label,
+            self.updated_at_label,
+            self.updated_at_value_label,
+            self.completed_at_label,
+            self.completed_at_row,
+            self.task_history_header,
+            self.task_history_tree,
+            self.task_delete_button,
+        ):
+            widget.setVisible(not create_mode)
+        if create_mode:
+            self.complete_button.hide()
+            self.save_button.setText(self.tr("create_task"))
+        else:
+            self.save_button.setText(self.tr("save"))
 
     def _set_status_combo(self, status: int) -> None:
         for index in range(self.status_combo.count()):

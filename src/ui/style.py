@@ -24,6 +24,7 @@ LIGHT_COLORS = {
     "grid": "#e5eaf1",
     "selection_bg": "#dbeafe",
     "selection_text": "#111827",
+    "focus_border": "#2563eb",
     "empty_border": "#cfd8e3",
     "primary": "#2563eb",
     "primary_hover": "#1d4ed8",
@@ -48,6 +49,7 @@ DARK_COLORS = {
     "grid": "#303030",
     "selection_bg": "#3a3a3d",
     "selection_text": "#ffffff",
+    "focus_border": "#60a5fa",
     "empty_border": "#3f3f46",
     "primary": "#3f3f46",
     "primary_hover": "#52525b",
@@ -155,7 +157,7 @@ QFrame#BottomNav {{
     border-top: 1px solid {colors["border"]};
     color: {colors["text"]};
 }}
-QLineEdit, QTextEdit, QComboBox, QDateEdit, QListWidget, QTableWidget {{
+QLineEdit, QTextEdit, QTextBrowser, QComboBox, QDateEdit, QListWidget, QTableWidget, QTreeWidget {{
     background: {colors["input_bg"]};
     color: {colors["text"]};
     border: 1px solid {colors["border"]};
@@ -164,8 +166,43 @@ QLineEdit, QTextEdit, QComboBox, QDateEdit, QListWidget, QTableWidget {{
     selection-background-color: {colors["selection_bg"]};
     selection-color: {colors["selection_text"]};
 }}
+QFrame#DetailPanel QPushButton {{
+    border: 1px solid transparent;
+    padding: 6px 11px;
+}}
+QFrame#DetailPanel QLineEdit[detailModified="true"],
+QFrame#DetailPanel QTextEdit[detailModified="true"],
+QFrame#DetailPanel QTextBrowser[detailModified="true"],
+QFrame#DetailPanel QComboBox[detailModified="true"],
+QFrame#DetailPanel QDateEdit[detailModified="true"] {{
+    border: 1px solid {"#d97706" if resolved == THEME_LIGHT else "#b7791f"};
+}}
+QFrame#DetailPanel QLineEdit[detailInvalid="true"],
+QFrame#DetailPanel QComboBox[detailInvalid="true"],
+QFrame#DetailPanel QDateEdit[detailInvalid="true"],
+QDialog QLineEdit[detailInvalid="true"],
+QDialog QComboBox[detailInvalid="true"],
+QDialog QDateEdit[detailInvalid="true"] {{
+    border: 1px solid {colors["danger"]};
+}}
+QFrame#DetailPanel QLineEdit:focus,
+QFrame#DetailPanel QTextEdit:focus,
+QFrame#DetailPanel QTextBrowser:focus,
+QFrame#DetailPanel QComboBox:focus,
+QFrame#DetailPanel QDateEdit:focus,
+QFrame#DetailPanel QTreeWidget:focus,
+QDialog QLineEdit:focus,
+QDialog QTextEdit:focus,
+QDialog QTextBrowser:focus,
+QDialog QComboBox:focus,
+QDialog QDateEdit:focus {{
+    border: 1px solid {colors["focus_border"]};
+}}
 QLineEdit#SearchInput {{
     min-width: 220px;
+}}
+QLineEdit#SearchInput:focus {{
+    border: 1px solid {colors["focus_border"]};
 }}
 QLineEdit::placeholder {{
     color: {colors["placeholder"]};
@@ -183,6 +220,14 @@ QLabel {{
 QWidget#TransparentRow {{
     background: transparent;
 }}
+QScrollArea#DetailScrollArea, QScrollArea#DetailScrollArea > QWidget, QScrollArea#DetailScrollArea > QWidget > QWidget {{
+    background: transparent;
+    border: 0;
+}}
+QWidget#DetailActionBar {{
+    background: transparent;
+    border-top: 1px solid {colors["border"]};
+}}
 QLabel#SectionLabel {{
     color: {colors["strong_text"]};
     font-weight: 600;
@@ -190,6 +235,10 @@ QLabel#SectionLabel {{
 }}
 QLabel#MutedLabel {{
     color: {colors["muted_text"]};
+}}
+QLabel#WarningLabel {{
+    color: {"#d97706" if resolved == THEME_LIGHT else "#fbbf24"};
+    font-weight: 600;
 }}
 QFrame#ShortcutRow {{
     border: 1px solid transparent;
@@ -279,6 +328,17 @@ QPushButton#NavButtonActive {{
 }}
 QDialogButtonBox QPushButton {{
     min-width: 76px;
+}}
+QFrame#DetailPanel QPushButton#PrimaryButton,
+QFrame#DetailPanel QPushButton#SecondaryButton,
+QFrame#DetailPanel QPushButton#DangerButton,
+QDialog QDialogButtonBox QPushButton {{
+    border: 1px solid transparent;
+    padding: 6px 11px;
+}}
+QFrame#DetailPanel QPushButton:focus,
+QDialog QPushButton:focus {{
+    border: 1px solid {colors["focus_border"]};
 }}
 QMenu {{
     background: {colors["input_bg"]};

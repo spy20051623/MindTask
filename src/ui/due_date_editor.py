@@ -5,8 +5,8 @@ from __future__ import annotations
 from datetime import datetime, time, timedelta
 from typing import Optional
 
-from PySide6.QtCore import QDate, QEvent
-from PySide6.QtWidgets import QComboBox, QDateEdit, QHBoxLayout, QWidget
+from PySide6.QtCore import QDate, QEvent, Qt
+from PySide6.QtWidgets import QAbstractSpinBox, QComboBox, QDateEdit, QHBoxLayout, QWidget
 
 from .i18n import Translator
 
@@ -15,6 +15,23 @@ NO_DUE_DATE = QDate(1900, 1, 1)
 NO_DUE_DATE_TEXT = "YYYY-MM-DD"
 NO_DUE_TIME_TEXT = "HH:MM"
 TIME_SLOT_MINUTES = 30
+TIME_MODE_WIDTH = 116
+DATE_WIDTH = 128
+TIME_WIDTH = 100
+
+
+class NoWheelComboBox(QComboBox):
+    """Combo box that ignores accidental wheel changes."""
+
+    def wheelEvent(self, event: QEvent) -> None:
+        event.ignore()
+
+
+class NoWheelDateEdit(QDateEdit):
+    """Date edit without wheel or click-stepper value changes."""
+
+    def wheelEvent(self, event: QEvent) -> None:
+        event.ignore()
 
 
 class DueDateEditor(QWidget):
@@ -28,12 +45,18 @@ class DueDateEditor(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
-        self.time_mode_combo = QComboBox()
+        self.time_mode_combo = NoWheelComboBox()
+        self.time_mode_combo.setFixedWidth(TIME_MODE_WIDTH)
+        self.time_mode_combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.time_mode_combo.installEventFilter(self)
         self.time_mode_combo.currentIndexChanged.connect(self._handle_time_mode_changed)
         layout.addWidget(self.time_mode_combo)
 
-        self.date_edit = QDateEdit()
+        self.date_edit = NoWheelDateEdit()
+        self.date_edit.setFixedWidth(DATE_WIDTH)
+        self.date_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.date_edit.setCalendarPopup(True)
+        self.date_edit.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
         self.date_edit.setMinimumDate(NO_DUE_DATE)
         self.date_edit.setSpecialValueText(NO_DUE_DATE_TEXT)
         self.date_edit.setDisplayFormat("yyyy-MM-dd")
@@ -42,9 +65,13 @@ class DueDateEditor(QWidget):
         self.date_edit.installEventFilter(self)
         layout.addWidget(self.date_edit)
 
-        self.time_combo = QComboBox()
+        self.time_combo = NoWheelComboBox()
         self.time_combo.setEditable(True)
-        self.time_combo.setMinimumWidth(110)
+        self.time_combo.setFixedWidth(TIME_WIDTH)
+        self.time_combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        if self.time_combo.lineEdit() is not None:
+            self.time_combo.lineEdit().setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            self.time_combo.lineEdit().installEventFilter(self)
         for hour in range(24):
             for minute in range(0, 60, TIME_SLOT_MINUTES):
                 self.time_combo.addItem(f"{hour:02d}:{minute:02d}")
@@ -113,6 +140,32 @@ class DueDateEditor(QWidget):
         mode = self.time_mode_combo.currentData()
         return str(mode or "none")
 
+    def due_parts(self) -> tuple[str, Optional[str], Optional[str]]:
+        mode = self.due_mode()
+        if mode == "none":
+            return mode, None, None
+        date_text = self.date_edit.date().toString("yyyy-MM-dd")
+        if mode == "all_day":
+            return mode, date_text, None
+        try:
+            selected_time = self._selected_time()
+        except ValueError:
+            return mode, date_text, self.time_combo.currentText().strip()
+        return mode, date_text, self._format_time_part(selected_time)
+
+    def invalid_parts(self) -> tuple[bool, bool]:
+        mode = self.due_mode()
+        if mode == "none":
+            return False, False
+        date_invalid = self.date_edit.date() == NO_DUE_DATE or not self.date_edit.hasAcceptableInput()
+        time_invalid = False
+        if mode == "exact_time":
+            try:
+                self._selected_time()
+            except ValueError:
+                time_invalid = True
+        return date_invalid, time_invalid
+
     def clear(self) -> None:
         self.set_due_value(None)
 
@@ -153,10 +206,13 @@ class DueDateEditor(QWidget):
             self.time_mode_combo.setCurrentIndex(0)
 
     def _set_time_value(self, value: time) -> None:
-        text = value.strftime("%H:%M:%S") if value.second else value.strftime("%H:%M")
+        text = self._format_time_part(value)
         self.time_combo.blockSignals(True)
         self.time_combo.setCurrentText(text)
         self.time_combo.blockSignals(False)
+
+    def _format_time_part(self, value: time) -> str:
+        return value.strftime("%H:%M:%S") if value.second else value.strftime("%H:%M")
 
     def _show_no_due_placeholders(self) -> None:
         self.date_edit.blockSignals(True)
@@ -196,15 +252,22 @@ class DueDateEditor(QWidget):
         return (base + timedelta(minutes=minutes_to_add)).time().replace(second=0, microsecond=0)
 
     def eventFilter(self, watched: object, event: QEvent) -> bool:
+        if event.type() == QEvent.Type.Wheel and watched in (
+            self.time_mode_combo,
+            self.date_edit,
+            self.time_combo,
+            self.time_combo.lineEdit(),
+        ):
+            event.ignore()
+            return True
         interactive_events = {
             QEvent.Type.FocusIn,
             QEvent.Type.MouseButtonPress,
             QEvent.Type.KeyPress,
-            QEvent.Type.Wheel,
         }
         if event.type() in interactive_events:
             if watched == self.date_edit:
                 self._enable_due_date()
-            elif watched == self.time_combo:
+            elif watched in (self.time_combo, self.time_combo.lineEdit()):
                 self._enable_exact_time()
         return super().eventFilter(watched, event)

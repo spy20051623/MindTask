@@ -17,7 +17,6 @@ new_task = Ctrl+N
 focus_search = Ctrl+F
 escape_tasks = Esc
 refresh = F5
-undo = Ctrl+U
 history = Ctrl+H
 save_task = Ctrl+S
 complete_task = Ctrl+Enter
