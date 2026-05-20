@@ -37,6 +37,7 @@ class MindTaskConfig:
     default_search_limit: int = 20
     ui_theme: str = "system"
     ui_language: str = "en"
+    smart_task_sorting: bool = True
     ui_shortcuts: Dict[str, str] = field(default_factory=lambda: dict(DEFAULT_UI_SHORTCUTS))
 
 
@@ -62,6 +63,7 @@ def load_config(config_path: Optional[str] = None) -> MindTaskConfig:
     ui_language = parser.get("ui", "language", fallback="en")
     if ui_language not in {"en", "zh"}:
         ui_language = "en"
+    smart_task_sorting = parser.getboolean("ui", "smart_task_sorting", fallback=True)
     ui_shortcuts = {
         action: parser.get("shortcuts", action, fallback=default_sequence).strip()
         for action, default_sequence in DEFAULT_UI_SHORTCUTS.items()
@@ -74,6 +76,7 @@ def load_config(config_path: Optional[str] = None) -> MindTaskConfig:
         default_search_limit=default_search_limit,
         ui_theme=ui_theme,
         ui_language=ui_language,
+        smart_task_sorting=smart_task_sorting,
         ui_shortcuts=ui_shortcuts,
     )
 
@@ -99,6 +102,7 @@ def _read_writable_config(config_path: Optional[str] = None) -> tuple[Path, conf
     parser["app"].setdefault("default_search_limit", "20")
     parser["ui"].setdefault("theme", "system")
     parser["ui"].setdefault("language", "en")
+    parser["ui"].setdefault("smart_task_sorting", "true")
     parser["ui"].pop("due_day_end", None)
     for action in list(parser["shortcuts"]):
         if action not in DEFAULT_UI_SHORTCUTS:
@@ -161,6 +165,12 @@ def save_ui_language(language: str, config_path: Optional[str] = None) -> None:
 
     path, parser = _read_writable_config(config_path)
     parser["ui"]["language"] = language
+    _write_config(path, parser)
+
+
+def save_smart_task_sorting(enabled: bool, config_path: Optional[str] = None) -> None:
+    path, parser = _read_writable_config(config_path)
+    parser["ui"]["smart_task_sorting"] = "true" if enabled else "false"
     _write_config(path, parser)
 
 

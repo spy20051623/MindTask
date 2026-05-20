@@ -8,6 +8,7 @@ default_search_limit = 20
 [ui]
 theme = system
 language = en
+smart_task_sorting = true
 
 [shortcuts]
 open_tasks = Ctrl+1
