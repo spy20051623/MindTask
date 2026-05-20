@@ -64,8 +64,10 @@ try {
         --specpath $BuildRoot `
         --add-data "$TemplatePath;config" `
         --add-data "$SchemaPath;sql" `
-        --collect-all PySide6 `
         --collect-all qtawesome `
+        --exclude-module PySide6.QtQml `
+        --exclude-module PySide6.QtQuick `
+        --exclude-module PySide6.QtQuickWidgets `
         $EntryPoint
     if ($LASTEXITCODE -ne 0) {
         throw "PyInstaller failed."
@@ -77,7 +79,12 @@ try {
         throw "Build completed but executable was not found: $ExePath"
     }
 
-    Compress-Archive -LiteralPath $AppDir -DestinationPath $ZipPath -Force
+    $TempZipPath = Join-Path $DistRoot "$AppName-$Version-windows-x64-$([guid]::NewGuid().ToString('N')).tmp.zip"
+    Compress-Archive -LiteralPath $AppDir -DestinationPath $TempZipPath
+    if (Test-Path -LiteralPath $ZipPath) {
+        Remove-Item -LiteralPath $ZipPath -Force
+    }
+    Move-Item -LiteralPath $TempZipPath -Destination $ZipPath -Force
 
     Write-Host "Built: $ExePath"
     Write-Host "Zip:   $ZipPath"

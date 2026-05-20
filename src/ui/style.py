@@ -186,6 +186,8 @@ QDialog QDateEdit[detailInvalid="true"] {{
     border: 1px solid {colors["danger"]};
 }}
 QFrame#DetailPanel QLineEdit:focus,
+QFrame#DetailPanel QLineEdit#ChecklistInlineEditor,
+QFrame#DetailPanel QLineEdit#ChecklistInlineEditor:focus,
 QFrame#DetailPanel QTextEdit:focus,
 QFrame#DetailPanel QTextBrowser:focus,
 QFrame#DetailPanel QComboBox:focus,
@@ -217,8 +219,29 @@ QLabel {{
     background: transparent;
     color: {colors["text"]};
 }}
-QWidget#TransparentRow {{
+QWidget#TransparentRow, QCheckBox {{
     background: transparent;
+}}
+QFrame#DetailPanel QPushButton#ChecklistDoneButton {{
+    background: {colors["input_bg"]};
+    color: {colors["muted_text"]};
+    border: 1px solid {colors["border"]};
+    border-radius: 4px;
+    padding: 0;
+    font-weight: 800;
+}}
+QFrame#DetailPanel QPushButton#ChecklistDoneButton:hover {{
+    background: {colors["selection_bg"]};
+    border: 1px solid {colors["focus_border"]};
+}}
+QFrame#DetailPanel QPushButton#ChecklistDoneButton:checked {{
+    background: {"#eff6ff" if resolved == THEME_LIGHT else colors["primary"]};
+    border: 1px solid {colors["focus_border"] if resolved == THEME_LIGHT else colors["primary"]};
+    color: {colors["focus_border"] if resolved == THEME_LIGHT else "#ffffff"};
+}}
+QFrame#DetailPanel QPushButton#ChecklistDoneButton:checked:hover {{
+    background: {"#dbeafe" if resolved == THEME_LIGHT else colors["primary"]};
+    border: 1px solid {colors["focus_border"]};
 }}
 QScrollArea#DetailScrollArea, QScrollArea#DetailScrollArea > QWidget, QScrollArea#DetailScrollArea > QWidget > QWidget {{
     background: transparent;
@@ -239,6 +262,10 @@ QLabel#MutedLabel {{
 QLabel#WarningLabel {{
     color: {"#d97706" if resolved == THEME_LIGHT else "#fbbf24"};
     font-weight: 600;
+}}
+QLabel#ChecklistItemLabel {{
+    color: {colors["text"]};
+    padding: 4px 2px;
 }}
 QFrame#ShortcutRow {{
     border: 1px solid transparent;

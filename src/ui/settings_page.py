@@ -9,8 +9,8 @@ from pathlib import Path
 
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (
-    QFileDialog,
     QComboBox,
+    QFileDialog,
     QFormLayout,
     QFrame,
     QHBoxLayout,
@@ -31,6 +31,7 @@ from .. import __author__, __version__
 from ..core import (
     MindTaskDB,
     save_database_path,
+    save_smart_task_sorting,
     save_ui_language,
     save_ui_theme,
 )
@@ -39,6 +40,7 @@ from .dialog_helpers import confirm_question
 from .i18n import LANGUAGE_LABELS, LANGUAGE_OPTIONS
 from .shortcut_settings import ShortcutSettingsMixin
 from .style import THEME_OPTIONS
+from .toggle_switch import ToggleSwitch
 
 
 SIDEBAR_WIDTH = 220
@@ -117,6 +119,22 @@ class SettingsPageMixin(ShortcutSettingsMixin):
         self.language_combo.currentIndexChanged.connect(self.apply_language_from_combo)
         self.language_label = QLabel()
         form.addRow(self.language_label, self.language_combo)
+
+        self.smart_task_sorting_checkbox = ToggleSwitch()
+        self.smart_task_sorting_checkbox.setChecked(self.smart_task_sorting)
+        self.smart_task_sorting_checkbox.toggled.connect(self.apply_smart_task_sorting_from_checkbox)
+        self.smart_task_sorting_label = QLabel()
+        smart_sorting_row = QWidget()
+        smart_sorting_row.setObjectName("TransparentRow")
+        smart_sorting_layout = QVBoxLayout(smart_sorting_row)
+        smart_sorting_layout.setContentsMargins(0, 3, 0, 0)
+        smart_sorting_layout.setSpacing(4)
+        self.smart_task_sorting_hint_label = QLabel()
+        self.smart_task_sorting_hint_label.setObjectName("MutedLabel")
+        self.smart_task_sorting_hint_label.setWordWrap(True)
+        smart_sorting_layout.addWidget(self.smart_task_sorting_checkbox)
+        smart_sorting_layout.addWidget(self.smart_task_sorting_hint_label)
+        form.addRow(self.smart_task_sorting_label, smart_sorting_row)
 
         layout.addLayout(form)
         layout.addStretch()
@@ -302,6 +320,9 @@ class SettingsPageMixin(ShortcutSettingsMixin):
         self.new_database_title_label.setText(self.tr("new_database"))
         self.theme_label.setText(self.tr("theme"))
         self.language_label.setText(self.tr("language"))
+        self.smart_task_sorting_label.setText(self.tr("smart_task_sorting"))
+        self._update_smart_task_sorting_switch_text()
+        self.smart_task_sorting_hint_label.setText(self.tr("smart_task_sorting_hint"))
         self.retranslate_shortcut_settings()
         self.database_path_label.setText(self.tr("database_path"))
         self.new_database_path_label.setText(self.tr("new_database_path"))
@@ -377,6 +398,30 @@ class SettingsPageMixin(ShortcutSettingsMixin):
             QMessageBox.warning(self, self.tr("language"), self.tr("could_not_save_language", error=exc))
         self.retranslate_ui()
         self.refresh_all()
+
+    def _update_smart_task_sorting_switch_text(self) -> None:
+        key = "switch_on" if self.smart_task_sorting_checkbox.isChecked() else "switch_off"
+        self.smart_task_sorting_checkbox.setText(self.tr(key))
+
+    def apply_smart_task_sorting_from_checkbox(self, checked: bool) -> None:
+        previous = self.smart_task_sorting
+        self.smart_task_sorting = checked
+        self._update_smart_task_sorting_switch_text()
+        try:
+            save_smart_task_sorting(checked, self.config_path)
+        except Exception as exc:
+            self.smart_task_sorting = previous
+            self.smart_task_sorting_checkbox.blockSignals(True)
+            self.smart_task_sorting_checkbox.setChecked(previous)
+            self.smart_task_sorting_checkbox.blockSignals(False)
+            self._update_smart_task_sorting_switch_text()
+            QMessageBox.warning(
+                self,
+                self.tr("smart_task_sorting"),
+                self.tr("could_not_save_smart_task_sorting", error=exc),
+            )
+            return
+        self.refresh_tasks(force_detail=True)
 
     def apply_database_path(self) -> None:
         database_path = self.database_path_edit.text().strip()

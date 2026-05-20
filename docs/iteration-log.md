@@ -16,6 +16,12 @@ Update it immediately before creating a release commit, not after every local ch
 
 ## Entries
 
+## 1.2.6 - 2026-05-20
+
+- Summary: Add Markdown-backed checklists to the task detail drawer and tighten task-page drawer behavior.
+- Changed: Added checklist parsing from task detail Markdown, rendered editable checklist rows under the details preview, supported draft-only add, edit, toggle, and delete actions that synchronize back to Markdown, added completion-time handling for unfinished checklist items, refined checklist controls and inline editing behavior, disabled accidental mouse-wheel changes on detail combo boxes, closed task-page drawers when leaving the Tasks page, refreshed tasks when returning to the Tasks page, and kept drawer-closing behavior scoped to task-page workflows.
+- Verified: Ran Python compile checks, checklist helper assertion checks, PowerShell build-script syntax checks, Windows package build checks, style checks, and offscreen desktop UI smoke checks for checklist add/edit/toggle/delete behavior, completion button state, inline edit focus behavior, no-wheel detail combo boxes, and task-page drawer/page switching.
+
 ## 1.2.5 - 2026-05-19
 
 - Summary: Refine task details into a richer drawer workflow with safer editing and history access.

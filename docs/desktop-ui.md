@@ -47,7 +47,7 @@ The project management panel opens from a small task-sidebar action and slides i
 
 Projects that still contain tasks cannot be deleted from the UI.
 
-Tasks are ordered by `id` ascending by default.
+Tasks use smart sorting by default: unfinished tasks appear before completed tasks, unfinished tasks are grouped by due date and priority, completed tasks are ordered by completion time, and the active table sort is used when the smart rules cannot distinguish two tasks.
 
 The UI calls the existing `MindTaskDB` core directly. It does not shell out to the CLI.
 
@@ -55,7 +55,7 @@ The current visual style is a restrained desktop tool layout with compact panels
 
 The Settings page includes:
 
-- General settings: theme selection and language selection
+- General settings: theme selection, language selection, and smart task sorting
 - Data settings: current database reload and backup, switching to an existing database, and creating a new database with sample projects and tasks
 - Keyboard shortcut settings
 - About settings: app version, config file path, and active database path
