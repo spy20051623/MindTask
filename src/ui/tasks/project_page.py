@@ -20,8 +20,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .dialog_helpers import confirm_question
-from .dialogs import ProjectDialog
+from ..shared.dialog_helpers import confirm_question
+from .project_dialog import ProjectDialog
 
 
 class ProjectPageMixin:

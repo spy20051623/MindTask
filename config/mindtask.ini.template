@@ -1,10 +1,6 @@
 [database]
 path = data/mindtask.db
 
-[app]
-default_task_limit = 100
-default_search_limit = 20
-
 [ui]
 theme = system
 language = en

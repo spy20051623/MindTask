@@ -12,6 +12,9 @@ $AppName = "MindTask"
 $EntryPoint = Join-Path $ProjectRoot "MindTask_ui.py"
 $TemplatePath = Join-Path $ProjectRoot "config\mindtask.ini.template"
 $SchemaPath = Join-Path $ProjectRoot "sql\mindtask_db_schema.sql"
+$ReadmePath = Join-Path $ProjectRoot "README.md"
+$ChineseReadmePath = Join-Path $ProjectRoot "README.zh.md"
+$DocsPath = Join-Path $ProjectRoot "docs"
 $Version = & $Python -c "import src; print(src.__version__)"
 $ZipPath = Join-Path $DistRoot "$AppName-$Version-windows-x64.zip"
 $PipIndexArgs = @(
@@ -30,6 +33,15 @@ if (-not (Test-Path -LiteralPath $TemplatePath)) {
 }
 if (-not (Test-Path -LiteralPath $SchemaPath)) {
     throw "Schema file was not found: $SchemaPath"
+}
+if (-not (Test-Path -LiteralPath $ReadmePath)) {
+    throw "README was not found: $ReadmePath"
+}
+if (-not (Test-Path -LiteralPath $ChineseReadmePath)) {
+    throw "Chinese README was not found: $ChineseReadmePath"
+}
+if (-not (Test-Path -LiteralPath $DocsPath)) {
+    throw "Docs directory was not found: $DocsPath"
 }
 
 Push-Location $ProjectRoot
@@ -78,6 +90,14 @@ try {
     if (-not (Test-Path -LiteralPath $ExePath)) {
         throw "Build completed but executable was not found: $ExePath"
     }
+
+    Copy-Item -LiteralPath $ReadmePath -Destination (Join-Path $AppDir "README.md") -Force
+    Copy-Item -LiteralPath $ChineseReadmePath -Destination (Join-Path $AppDir "README.zh.md") -Force
+    $AppDocsPath = Join-Path $AppDir "docs"
+    if (Test-Path -LiteralPath $AppDocsPath) {
+        Remove-Item -LiteralPath $AppDocsPath -Recurse -Force
+    }
+    Copy-Item -LiteralPath $DocsPath -Destination $AppDocsPath -Recurse -Force
 
     $TempZipPath = Join-Path $DistRoot "$AppName-$Version-windows-x64-$([guid]::NewGuid().ToString('N')).tmp.zip"
     Compress-Archive -LiteralPath $AppDir -DestinationPath $TempZipPath

@@ -130,9 +130,7 @@ def badge_colors_for_theme(theme: str, app=None):
     return DARK_BADGE_COLORS if resolve_theme(theme, app) == THEME_DARK else LIGHT_BADGE_COLORS
 
 
-def build_app_style(theme: str = THEME_SYSTEM, app=None) -> str:
-    resolved = resolve_theme(theme, app)
-    colors = colors_for_theme(theme, app)
+def _base_style(colors: Dict[str, str]) -> str:
     return f"""
 QWidget {{
     background: {colors["app_bg"]};
@@ -170,6 +168,70 @@ QFrame#DetailPanel QPushButton {{
     border: 1px solid transparent;
     padding: 6px 11px;
 }}
+QLineEdit#SearchInput {{
+    min-width: 220px;
+}}
+QLineEdit#SearchInput:focus {{
+    border: 1px solid {colors["focus_border"]};
+}}
+QLineEdit::placeholder {{
+    color: {colors["placeholder"]};
+}}
+QComboBox QAbstractItemView, QDateEdit QAbstractItemView {{
+    background: {colors["input_bg"]};
+    color: {colors["text"]};
+    selection-background-color: {colors["selection_bg"]};
+    selection-color: {colors["selection_text"]};
+}}
+QLabel {{
+    background: transparent;
+    color: {colors["text"]};
+}}
+QWidget#TransparentRow, QCheckBox {{
+    background: transparent;
+}}
+QScrollArea#DetailScrollArea, QScrollArea#DetailScrollArea > QWidget, QScrollArea#DetailScrollArea > QWidget > QWidget {{
+    background: transparent;
+    border: 0;
+}}
+QWidget#DetailActionBar {{
+    background: transparent;
+    border-top: 1px solid {colors["border"]};
+}}
+QLabel#SectionLabel {{
+    color: {colors["strong_text"]};
+    font-weight: 600;
+    font-size: 14px;
+}}
+QLabel#MutedLabel {{
+    color: {colors["muted_text"]};
+}}
+QLabel#EmptyState {{
+    color: {colors["muted_text"]};
+    background: {colors["input_bg"]};
+    border: 1px dashed {colors["empty_border"]};
+    border-radius: 6px;
+    padding: 24px;
+}}
+QMenu {{
+    background: {colors["input_bg"]};
+    color: {colors["text"]};
+    border: 1px solid {colors["border"]};
+    padding: 4px;
+}}
+QMenu::item {{
+    padding: 6px 24px 6px 10px;
+    border-radius: 4px;
+}}
+QMenu::item:selected {{
+    background: {colors["selection_bg"]};
+    color: {colors["selection_text"]};
+}}
+"""
+
+
+def _detail_field_style(colors: Dict[str, str], resolved: str) -> str:
+    return f"""
 QFrame#DetailPanel QLineEdit[detailModified="true"],
 QFrame#DetailPanel QTextEdit[detailModified="true"],
 QFrame#DetailPanel QTextBrowser[detailModified="true"],
@@ -200,28 +262,11 @@ QDialog QComboBox:focus,
 QDialog QDateEdit:focus {{
     border: 1px solid {colors["focus_border"]};
 }}
-QLineEdit#SearchInput {{
-    min-width: 220px;
-}}
-QLineEdit#SearchInput:focus {{
-    border: 1px solid {colors["focus_border"]};
-}}
-QLineEdit::placeholder {{
-    color: {colors["placeholder"]};
-}}
-QComboBox QAbstractItemView, QDateEdit QAbstractItemView {{
-    background: {colors["input_bg"]};
-    color: {colors["text"]};
-    selection-background-color: {colors["selection_bg"]};
-    selection-color: {colors["selection_text"]};
-}}
-QLabel {{
-    background: transparent;
-    color: {colors["text"]};
-}}
-QWidget#TransparentRow, QCheckBox {{
-    background: transparent;
-}}
+"""
+
+
+def _checklist_style(colors: Dict[str, str], resolved: str) -> str:
+    return f"""
 QFrame#DetailPanel QPushButton#ChecklistDoneButton {{
     background: {colors["input_bg"]};
     color: {colors["muted_text"]};
@@ -243,22 +288,15 @@ QFrame#DetailPanel QPushButton#ChecklistDoneButton:checked:hover {{
     background: {"#dbeafe" if resolved == THEME_LIGHT else colors["primary"]};
     border: 1px solid {colors["focus_border"]};
 }}
-QScrollArea#DetailScrollArea, QScrollArea#DetailScrollArea > QWidget, QScrollArea#DetailScrollArea > QWidget > QWidget {{
-    background: transparent;
-    border: 0;
+QLabel#ChecklistItemLabel {{
+    color: {colors["text"]};
+    padding: 4px 2px;
 }}
-QWidget#DetailActionBar {{
-    background: transparent;
-    border-top: 1px solid {colors["border"]};
-}}
-QLabel#SectionLabel {{
-    color: {colors["strong_text"]};
-    font-weight: 600;
-    font-size: 14px;
-}}
-QLabel#MutedLabel {{
-    color: {colors["muted_text"]};
-}}
+"""
+
+
+def _alert_style(resolved: str) -> str:
+    return f"""
 QWidget#AlertMessage {{
     background: transparent;
     min-width: 0;
@@ -294,10 +332,11 @@ QLabel#AlertIcon[alertSeverity="2"] {{
 QLabel#AlertText[alertSeverity="2"] {{
     color: {"#dc2626" if resolved == THEME_LIGHT else "#f87171"};
 }}
-QLabel#ChecklistItemLabel {{
-    color: {colors["text"]};
-    padding: 4px 2px;
-}}
+"""
+
+
+def _shortcut_style(colors: Dict[str, str], resolved: str) -> str:
+    return f"""
 QFrame#ShortcutRow {{
     border: 1px solid transparent;
     border-radius: 6px;
@@ -318,13 +357,11 @@ QFrame#ShortcutRow[shortcutInvalid="true"] {{
     background: {"#fee2e2" if resolved == THEME_LIGHT else "#4a2424"};
     border: 1px solid {colors["danger"]};
 }}
-QLabel#EmptyState {{
-    color: {colors["muted_text"]};
-    background: {colors["input_bg"]};
-    border: 1px dashed {colors["empty_border"]};
-    border-radius: 6px;
-    padding: 24px;
-}}
+"""
+
+
+def _button_style(colors: Dict[str, str]) -> str:
+    return f"""
 QPushButton {{
     background: {colors["primary"]};
     color: #ffffff;
@@ -398,20 +435,11 @@ QFrame#DetailPanel QPushButton:focus,
 QDialog QPushButton:focus {{
     border: 1px solid {colors["focus_border"]};
 }}
-QMenu {{
-    background: {colors["input_bg"]};
-    color: {colors["text"]};
-    border: 1px solid {colors["border"]};
-    padding: 4px;
-}}
-QMenu::item {{
-    padding: 6px 24px 6px 10px;
-    border-radius: 4px;
-}}
-QMenu::item:selected {{
-    background: {colors["selection_bg"]};
-    color: {colors["selection_text"]};
-}}
+"""
+
+
+def _table_and_list_style(colors: Dict[str, str]) -> str:
+    return f"""
 QFrame#TaskActions {{
     background: transparent;
     border: 0;
@@ -466,3 +494,19 @@ QListWidget#DueFilterList::item:selected {{
     color: {colors["selection_text"]};
 }}
 """
+
+
+def build_app_style(theme: str = THEME_SYSTEM, app=None) -> str:
+    resolved = resolve_theme(theme, app)
+    colors = colors_for_theme(theme, app)
+    return "".join(
+        (
+            _base_style(colors),
+            _detail_field_style(colors, resolved),
+            _checklist_style(colors, resolved),
+            _alert_style(resolved),
+            _shortcut_style(colors, resolved),
+            _button_style(colors),
+            _table_and_list_style(colors),
+        )
+    )

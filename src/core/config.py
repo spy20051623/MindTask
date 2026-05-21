@@ -33,8 +33,6 @@ DEFAULT_UI_SHORTCUTS = {
 class MindTaskConfig:
     database_path: str
     schema_path: str
-    default_task_limit: int = 100
-    default_search_limit: int = 20
     ui_theme: str = "system"
     ui_language: str = "en"
     smart_task_sorting: bool = True
@@ -56,8 +54,6 @@ def load_config(config_path: Optional[str] = None) -> MindTaskConfig:
     parser.read(path, encoding="utf-8-sig")
 
     database_path = parser.get("database", "path", fallback="data/mindtask.db")
-    default_task_limit = parser.getint("app", "default_task_limit", fallback=100)
-    default_search_limit = parser.getint("app", "default_search_limit", fallback=20)
     ui_theme = parser.get("ui", "theme", fallback="system")
     if ui_theme not in {"system", "light", "dark"}:
         ui_theme = "system"
@@ -74,8 +70,6 @@ def load_config(config_path: Optional[str] = None) -> MindTaskConfig:
     return MindTaskConfig(
         database_path=resolve_project_path(database_path),
         schema_path=str(DEFAULT_SCHEMA_PATH),
-        default_task_limit=default_task_limit,
-        default_search_limit=default_search_limit,
         ui_theme=ui_theme,
         ui_language=ui_language,
         smart_task_sorting=smart_task_sorting,
@@ -92,8 +86,6 @@ def _read_writable_config(config_path: Optional[str] = None) -> tuple[Path, conf
 
     if "database" not in parser:
         parser["database"] = {}
-    if "app" not in parser:
-        parser["app"] = {}
     if "ui" not in parser:
         parser["ui"] = {}
     if "shortcuts" not in parser:
@@ -101,8 +93,8 @@ def _read_writable_config(config_path: Optional[str] = None) -> tuple[Path, conf
 
     parser["database"].setdefault("path", "data/mindtask.db")
     parser["database"].pop("schema", None)
-    parser["app"].setdefault("default_task_limit", "100")
-    parser["app"].setdefault("default_search_limit", "20")
+    if "app" in parser:
+        parser.remove_section("app")
     parser["ui"].setdefault("theme", "system")
     parser["ui"].setdefault("language", "en")
     parser["ui"].setdefault("smart_task_sorting", "true")

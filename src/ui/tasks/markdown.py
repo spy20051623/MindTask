@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from markdown_it import MarkdownIt
 
-from .checklist_markdown import render_checklist_markers
+from .checklist_markdown import ChecklistMarkdown
 
 
 _MARKDOWN = MarkdownIt("commonmark", {"html": False})
@@ -12,7 +12,7 @@ _MARKDOWN = MarkdownIt("commonmark", {"html": False})
 
 def render_markdown_html(markdown_text: str) -> str:
     """Render Markdown text to a small, Qt-friendly HTML document."""
-    body = _MARKDOWN.render(render_checklist_markers(markdown_text or ""))
+    body = _MARKDOWN.render(ChecklistMarkdown(markdown_text or "").render_markers())
     return f"""
 <!doctype html>
 <html>

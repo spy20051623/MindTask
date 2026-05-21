@@ -8,7 +8,7 @@ from typing import Optional
 from PySide6.QtCore import QDate, QEvent, Qt
 from PySide6.QtWidgets import QAbstractSpinBox, QComboBox, QDateEdit, QHBoxLayout, QWidget
 
-from .i18n import Translator
+from ..shared.i18n import Translator
 
 
 NO_DUE_DATE = QDate(1900, 1, 1)

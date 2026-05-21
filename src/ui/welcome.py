@@ -22,13 +22,13 @@ from PySide6.QtWidgets import (
 )
 
 from ..core import get_config_path, load_config, save_database_path, save_ui_language
-from .database_file_service import (
+from .settings.database_file_service import (
     DatabaseFileService,
     DatabasePathError,
 )
-from .dialog_helpers import confirm_question
-from .i18n import LANGUAGE_LABELS, LANGUAGE_OPTIONS, Translator
-from .style import THEME_SYSTEM, build_app_style
+from .shared.dialog_helpers import confirm_question
+from .shared.i18n import LANGUAGE_LABELS, LANGUAGE_OPTIONS, Translator
+from .shared.style import THEME_SYSTEM, build_app_style
 
 
 class WelcomeDialog(QDialog):

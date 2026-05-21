@@ -6,7 +6,7 @@ from PySide6.QtCore import Property, QEasingCurve, QPropertyAnimation, QRectF, Q
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QCheckBox, QStyleOptionButton
 
-from .style import THEME_SYSTEM, colors_for_theme
+from ..shared.style import THEME_SYSTEM, colors_for_theme
 
 
 class ToggleSwitch(QCheckBox):

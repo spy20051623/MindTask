@@ -14,9 +14,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .dialog_helpers import localize_dialog_buttons, required_label
-from .i18n import Translator
-from .style import THEME_SYSTEM, build_app_style
+from ..shared.dialog_helpers import localize_dialog_buttons, required_label
+from ..shared.i18n import Translator
+from ..shared.style import THEME_SYSTEM, build_app_style
 
 
 class ProjectDialog(QDialog):

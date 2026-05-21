@@ -7,8 +7,8 @@ from typing import Dict
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import QFormLayout, QFrame, QHBoxLayout, QLabel, QMessageBox, QPushButton, QVBoxLayout, QWidget
 
-from ..core import DEFAULT_UI_SHORTCUTS, save_ui_shortcuts
-from .alert_message import ALERT_DANGER, AlertMessage
+from ...core import DEFAULT_UI_SHORTCUTS, save_ui_shortcuts
+from ..shared.alert_message import ALERT_DANGER, AlertMessage
 from .shortcut_editor import ShortcutKeySequenceEdit
 
 
