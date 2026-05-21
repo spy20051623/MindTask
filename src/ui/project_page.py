@@ -120,6 +120,8 @@ class ProjectPageMixin:
                 self.projects_table.setItem(row, column, item)
         self.projects_table.resizeRowsToContents()
         self.project_count_label.setText(self.tr("project_count", count=len(projects)))
+        if self._is_projects_drawer_open():
+            self.show_project_count_status()
         if selected_id is not None:
             self._select_project_management_row(selected_id)
         elif projects:
@@ -176,6 +178,7 @@ class ProjectPageMixin:
             return
         self.refresh_all()
         self._select_project_management_row(project_id)
+        self.show_project_operation_status("status_project_created", name=name)
 
     def open_rename_project_dialog(self) -> None:
         project_id = self._selected_project_management_id()
@@ -191,8 +194,10 @@ class ProjectPageMixin:
         dialog.setWindowTitle(self.tr("rename_project"))
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
+        old_name = project["name"]
+        new_name = dialog.project_name()
         try:
-            changed = self.db.update_project(project_id, name=dialog.project_name())
+            changed = self.db.update_project(project_id, name=new_name)
         except ValueError as exc:
             QMessageBox.warning(self, self.tr("invalid_project"), str(exc))
             return
@@ -204,6 +209,7 @@ class ProjectPageMixin:
             return
         self.refresh_all()
         self._select_project_management_row(project_id)
+        self.show_project_operation_status("status_project_renamed", old=old_name, new=new_name)
 
     def delete_selected_project(self) -> None:
         project_id = self._selected_project_management_id()
@@ -234,6 +240,7 @@ class ProjectPageMixin:
             QMessageBox.warning(self, self.tr("project"), self.tr("project_not_found"))
             return
         self.refresh_all()
+        self.show_project_operation_status("status_project_deleted", name=project["name"])
 
     def _selected_project_management_id(self) -> Optional[int]:
         if not hasattr(self, "projects_table"):

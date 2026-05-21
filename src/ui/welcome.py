@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -22,7 +21,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..core import MindTaskDB, get_config_path, load_config, save_database_path, save_ui_language
+from ..core import get_config_path, load_config, save_database_path, save_ui_language
+from .database_file_service import (
+    DatabaseFileService,
+    DatabasePathError,
+)
+from .dialog_helpers import confirm_question
 from .i18n import LANGUAGE_LABELS, LANGUAGE_OPTIONS, Translator
 from .style import THEME_SYSTEM, build_app_style
 
@@ -173,7 +177,7 @@ class WelcomeDialog(QDialog):
         if self.existing_radio.isChecked():
             path, _ = QFileDialog.getOpenFileName(self, self.tr("use_existing_database"), str(Path(current).parent), "SQLite (*.db *.sqlite *.sqlite3);;All files (*)")
         else:
-            path, _ = QFileDialog.getSaveFileName(self, self.tr("create_new_database"), current, "SQLite (*.db);;All files (*)")
+            path, _ = QFileDialog.getSaveFileName(self, self.tr("create_new_database"), current, "SQLite (*.db *.sqlite *.sqlite3);;All files (*)")
         if path:
             self.database_path_edit.setText(path)
 
@@ -184,44 +188,40 @@ class WelcomeDialog(QDialog):
             QMessageBox.warning(self, self.tr("database"), self.tr(key))
             return
 
-        target = Path(database_path)
-        if self.existing_radio.isChecked() and not target.exists():
-            QMessageBox.warning(self, self.tr("database"), self.tr("existing_database_required"))
+        try:
+            if self.existing_radio.isChecked():
+                existing_db = self._database_file_service().open_existing_database(database_path)
+                target = Path(existing_db.db_path)
+            else:
+                target = self._database_file_service().inspect_new_database_target(database_path)
+        except DatabasePathError as exc:
+            QMessageBox.warning(self, self.tr("database"), self.tr(exc.key, **exc.kwargs))
             return
-        if self.new_radio.isChecked() and target.exists():
-            QMessageBox.warning(self, self.tr("database"), self.tr("new_database_exists"))
-            return
+
+        if self.new_radio.isChecked() and target.exists:
+            if not confirm_question(
+                self,
+                self.tr("create_database"),
+                self.tr("overwrite_database_confirm", path=str(target.path)),
+                self.translator,
+            ):
+                return
 
         try:
             save_ui_language(self.language, self.config_path)
             if self.new_radio.isChecked():
-                target.parent.mkdir(parents=True, exist_ok=True)
-                new_db = self._open_database_from_path(str(target))
-                new_db.create_sample_data()
-                new_db.get_tasks(limit=1)
+                new_db = self._database_file_service().create_database(str(target.path), overwrite=target.exists)
+                save_database_path(new_db.db_path, self.config_path)
             else:
-                existing_db = self._open_database_from_path(str(target))
-                existing_db.get_tasks(limit=1)
-            save_database_path(str(target), self.config_path)
+                save_database_path(str(target), self.config_path)
+        except DatabasePathError as exc:
+            QMessageBox.warning(self, self.tr("database"), self.tr(exc.key, **exc.kwargs))
+            return
         except Exception as exc:
             QMessageBox.warning(self, self.tr("database"), str(exc))
             return
 
         self.accept()
 
-    def _open_database_from_path(self, database_path: str) -> MindTaskDB:
-        config = load_config(self.config_path)
-        with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".ini", delete=False) as fh:
-            temp_config_path = fh.name
-            fh.write("[database]\n")
-            fh.write(f"path = {database_path}\n\n")
-            fh.write("[app]\n")
-            fh.write(f"default_task_limit = {config.default_task_limit}\n")
-            fh.write(f"default_search_limit = {config.default_search_limit}\n\n")
-            fh.write("[ui]\n")
-            fh.write(f"theme = {config.ui_theme}\n")
-            fh.write(f"language = {self.language}\n")
-        try:
-            return MindTaskDB(config_path=temp_config_path)
-        finally:
-            Path(temp_config_path).unlink(missing_ok=True)
+    def _database_file_service(self) -> DatabaseFileService:
+        return DatabaseFileService(self.config_path, language=self.language)

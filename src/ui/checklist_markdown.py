@@ -35,12 +35,6 @@ def parse_checklist_items(markdown_text: str) -> List[ChecklistItem]:
     return items
 
 
-def checklist_summary(markdown_text: str) -> tuple[int, int]:
-    """Return completed and total checklist counts."""
-    items = parse_checklist_items(markdown_text)
-    return sum(1 for item in items if item.completed), len(items)
-
-
 def toggle_checklist_item(markdown_text: str, item_index: int) -> str:
     """Flip a parsed checklist item's marker while preserving the line text."""
     items = parse_checklist_items(markdown_text)
