@@ -8,6 +8,7 @@ from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import QFormLayout, QFrame, QHBoxLayout, QLabel, QMessageBox, QPushButton, QVBoxLayout, QWidget
 
 from ..core import DEFAULT_UI_SHORTCUTS, save_ui_shortcuts
+from .alert_message import ALERT_DANGER, AlertMessage
 from .shortcut_editor import ShortcutKeySequenceEdit
 
 
@@ -97,8 +98,7 @@ class ShortcutSettingsMixin:
         self.reset_shortcuts_button.clicked.connect(self.reset_all_shortcuts_to_defaults)
         shortcut_button_layout.addWidget(self.apply_shortcuts_button)
         shortcut_button_layout.addWidget(self.reset_shortcuts_button)
-        self.shortcuts_message = QLabel("")
-        self.shortcuts_message.setObjectName("MutedLabel")
+        self.shortcuts_message = AlertMessage()
         self.shortcuts_message.hide()
         shortcut_button_layout.addWidget(self.shortcuts_message)
         shortcut_button_layout.addStretch()
@@ -121,12 +121,16 @@ class ShortcutSettingsMixin:
         invalid = self._first_invalid_shortcut(shortcuts)
         if invalid:
             self.update_shortcut_change_indicators()
-            self.show_inline_message(self.shortcuts_message, self.tr("invalid_shortcut", shortcut=invalid))
+            self.show_inline_message(self.shortcuts_message, self.tr("invalid_shortcut", shortcut=invalid), ALERT_DANGER)
             return
         duplicate = self._first_duplicate_shortcut(shortcuts)
         if duplicate:
             self.update_shortcut_change_indicators()
-            self.show_inline_message(self.shortcuts_message, self.tr("duplicate_shortcut", shortcut=duplicate))
+            self.show_inline_message(
+                self.shortcuts_message,
+                self.tr("duplicate_shortcut", shortcut=duplicate),
+                ALERT_DANGER,
+            )
             return
         try:
             save_ui_shortcuts(shortcuts, self.config_path)
@@ -137,6 +141,7 @@ class ShortcutSettingsMixin:
         self._build_shortcuts()
         self.update_shortcut_change_indicators()
         self.show_inline_message(self.shortcuts_message, self.tr("shortcuts_updated"))
+        self.show_status_message("status_shortcuts_saved")
 
     def cancel_shortcut_change(self, action: str) -> None:
         self.shortcut_edits[action].setKeySequence(QKeySequence(self.shortcut_sequences.get(action, "")))

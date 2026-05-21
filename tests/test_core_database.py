@@ -1,5 +1,5 @@
 from src.core import MindTaskDB
-from src.core.config import ensure_config_exists, load_config
+from src.core.config import ensure_config_exists, load_config, save_hide_completed_tasks
 import pytest
 
 
@@ -120,6 +120,16 @@ def test_missing_config_requires_template(tmp_path, monkeypatch):
 
     with pytest.raises(FileNotFoundError):
         ensure_config_exists(str(config_path))
+
+
+def test_hide_completed_tasks_config_defaults_and_saves(tmp_path):
+    config_path = write_config(tmp_path)
+
+    assert load_config(config_path).hide_completed_tasks is False
+
+    save_hide_completed_tasks(True, config_path)
+
+    assert load_config(config_path).hide_completed_tasks is True
 
 
 def test_sample_data_is_explicit(tmp_path):

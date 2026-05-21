@@ -38,6 +38,7 @@ class MindTaskConfig:
     ui_theme: str = "system"
     ui_language: str = "en"
     smart_task_sorting: bool = True
+    hide_completed_tasks: bool = False
     ui_shortcuts: Dict[str, str] = field(default_factory=lambda: dict(DEFAULT_UI_SHORTCUTS))
 
 
@@ -64,6 +65,7 @@ def load_config(config_path: Optional[str] = None) -> MindTaskConfig:
     if ui_language not in {"en", "zh"}:
         ui_language = "en"
     smart_task_sorting = parser.getboolean("ui", "smart_task_sorting", fallback=True)
+    hide_completed_tasks = parser.getboolean("ui", "hide_completed_tasks", fallback=False)
     ui_shortcuts = {
         action: parser.get("shortcuts", action, fallback=default_sequence).strip()
         for action, default_sequence in DEFAULT_UI_SHORTCUTS.items()
@@ -77,6 +79,7 @@ def load_config(config_path: Optional[str] = None) -> MindTaskConfig:
         ui_theme=ui_theme,
         ui_language=ui_language,
         smart_task_sorting=smart_task_sorting,
+        hide_completed_tasks=hide_completed_tasks,
         ui_shortcuts=ui_shortcuts,
     )
 
@@ -103,6 +106,7 @@ def _read_writable_config(config_path: Optional[str] = None) -> tuple[Path, conf
     parser["ui"].setdefault("theme", "system")
     parser["ui"].setdefault("language", "en")
     parser["ui"].setdefault("smart_task_sorting", "true")
+    parser["ui"].setdefault("hide_completed_tasks", "false")
     parser["ui"].pop("due_day_end", None)
     for action in list(parser["shortcuts"]):
         if action not in DEFAULT_UI_SHORTCUTS:
@@ -171,6 +175,12 @@ def save_ui_language(language: str, config_path: Optional[str] = None) -> None:
 def save_smart_task_sorting(enabled: bool, config_path: Optional[str] = None) -> None:
     path, parser = _read_writable_config(config_path)
     parser["ui"]["smart_task_sorting"] = "true" if enabled else "false"
+    _write_config(path, parser)
+
+
+def save_hide_completed_tasks(enabled: bool, config_path: Optional[str] = None) -> None:
+    path, parser = _read_writable_config(config_path)
+    parser["ui"]["hide_completed_tasks"] = "true" if enabled else "false"
     _write_config(path, parser)
 
 

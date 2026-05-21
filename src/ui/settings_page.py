@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import tempfile
-import shutil
-from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QTimer, Qt
@@ -31,9 +28,15 @@ from .. import __author__, __version__
 from ..core import (
     MindTaskDB,
     save_database_path,
+    save_hide_completed_tasks,
     save_smart_task_sorting,
     save_ui_language,
     save_ui_theme,
+)
+from .alert_message import ALERT_DANGER, ALERT_INFO, AlertMessage
+from .database_file_service import (
+    DatabaseFileService,
+    DatabasePathError,
 )
 from .constants import THEME_TRANSLATION_KEYS
 from .dialog_helpers import confirm_question
@@ -136,6 +139,18 @@ class SettingsPageMixin(ShortcutSettingsMixin):
         smart_sorting_layout.addWidget(self.smart_task_sorting_hint_label)
         form.addRow(self.smart_task_sorting_label, smart_sorting_row)
 
+        self.hide_completed_tasks_checkbox = ToggleSwitch()
+        self.hide_completed_tasks_checkbox.setChecked(self.hide_completed_tasks)
+        self.hide_completed_tasks_checkbox.toggled.connect(self.apply_hide_completed_tasks_from_checkbox)
+        self.hide_completed_tasks_label = QLabel()
+        hide_completed_row = QWidget()
+        hide_completed_row.setObjectName("TransparentRow")
+        hide_completed_layout = QVBoxLayout(hide_completed_row)
+        hide_completed_layout.setContentsMargins(0, 3, 0, 0)
+        hide_completed_layout.setSpacing(4)
+        hide_completed_layout.addWidget(self.hide_completed_tasks_checkbox)
+        form.addRow(self.hide_completed_tasks_label, hide_completed_row)
+
         layout.addLayout(form)
         layout.addStretch()
         return panel
@@ -170,8 +185,7 @@ class SettingsPageMixin(ShortcutSettingsMixin):
         self.backup_db_button.clicked.connect(self.backup_current_database)
         current_button_row.addWidget(self.reload_db_button)
         current_button_row.addWidget(self.backup_db_button)
-        self.reload_database_message = QLabel("")
-        self.reload_database_message.setObjectName("MutedLabel")
+        self.reload_database_message = AlertMessage()
         self.reload_database_message.hide()
         current_button_row.addWidget(self.reload_database_message)
         current_button_row.addStretch()
@@ -200,8 +214,7 @@ class SettingsPageMixin(ShortcutSettingsMixin):
         self.apply_db_button.setObjectName("SecondaryButton")
         self.apply_db_button.clicked.connect(self.apply_database_path)
         switch_button_row.addWidget(self.apply_db_button)
-        self.switch_database_message = QLabel("")
-        self.switch_database_message.setObjectName("MutedLabel")
+        self.switch_database_message = AlertMessage()
         self.switch_database_message.hide()
         switch_button_row.addWidget(self.switch_database_message)
         switch_button_row.addStretch()
@@ -229,8 +242,7 @@ class SettingsPageMixin(ShortcutSettingsMixin):
         self.create_db_button.setObjectName("SecondaryButton")
         self.create_db_button.clicked.connect(self.create_database_from_settings)
         new_button_row.addWidget(self.create_db_button)
-        self.new_database_message = QLabel("")
-        self.new_database_message.setObjectName("MutedLabel")
+        self.new_database_message = AlertMessage()
         self.new_database_message.hide()
         new_button_row.addWidget(self.new_database_message)
         new_button_row.addStretch()
@@ -296,11 +308,23 @@ class SettingsPageMixin(ShortcutSettingsMixin):
         scroll_area.setWidget(content)
         return scroll_area
 
-    def show_inline_message(self, label: QLabel, message: str, timeout_ms: int = 3500) -> None:
-        label.setText(message)
-        label.setVisible(bool(message))
+    def show_inline_message(
+        self,
+        label: AlertMessage,
+        message: str,
+        severity: int = ALERT_INFO,
+        timeout_ms: int = 3500,
+    ) -> None:
+        label.set_message(message, severity)
         if message:
-            QTimer.singleShot(timeout_ms, label.hide)
+            token = int(label.property("messageToken") or 0) + 1
+            label.setProperty("messageToken", token)
+
+            def hide_if_current() -> None:
+                if int(label.property("messageToken") or 0) == token:
+                    label.hide()
+
+            QTimer.singleShot(timeout_ms, hide_if_current)
 
     def retranslate_settings_ui(self) -> None:
         self.settings_sections_label.setText(self.tr("settings"))
@@ -323,6 +347,8 @@ class SettingsPageMixin(ShortcutSettingsMixin):
         self.smart_task_sorting_label.setText(self.tr("smart_task_sorting"))
         self._update_smart_task_sorting_switch_text()
         self.smart_task_sorting_hint_label.setText(self.tr("smart_task_sorting_hint"))
+        self.hide_completed_tasks_label.setText(self.tr("hide_completed_tasks"))
+        self._update_hide_completed_tasks_switch_text()
         self.retranslate_shortcut_settings()
         self.database_path_label.setText(self.tr("database_path"))
         self.new_database_path_label.setText(self.tr("new_database_path"))
@@ -403,6 +429,10 @@ class SettingsPageMixin(ShortcutSettingsMixin):
         key = "switch_on" if self.smart_task_sorting_checkbox.isChecked() else "switch_off"
         self.smart_task_sorting_checkbox.setText(self.tr(key))
 
+    def _update_hide_completed_tasks_switch_text(self) -> None:
+        key = "switch_on" if self.hide_completed_tasks_checkbox.isChecked() else "switch_off"
+        self.hide_completed_tasks_checkbox.setText(self.tr(key))
+
     def apply_smart_task_sorting_from_checkbox(self, checked: bool) -> None:
         previous = self.smart_task_sorting
         self.smart_task_sorting = checked
@@ -423,29 +453,61 @@ class SettingsPageMixin(ShortcutSettingsMixin):
             return
         self.refresh_tasks(force_detail=True)
 
+    def apply_hide_completed_tasks_from_checkbox(self, checked: bool) -> None:
+        previous = self.hide_completed_tasks
+        self.hide_completed_tasks = checked
+        self._update_hide_completed_tasks_switch_text()
+        try:
+            save_hide_completed_tasks(checked, self.config_path)
+        except Exception as exc:
+            self.hide_completed_tasks = previous
+            self.hide_completed_tasks_checkbox.blockSignals(True)
+            self.hide_completed_tasks_checkbox.setChecked(previous)
+            self.hide_completed_tasks_checkbox.blockSignals(False)
+            self._update_hide_completed_tasks_switch_text()
+            QMessageBox.warning(
+                self,
+                self.tr("hide_completed_tasks"),
+                self.tr("could_not_save_hide_completed_tasks", error=exc),
+            )
+            return
+        self.refresh_tasks(force_detail=True)
+
     def apply_database_path(self) -> None:
         database_path = self.database_path_edit.text().strip()
         if not database_path:
-            QMessageBox.warning(self, self.tr("database"), self.tr("database_path_required"))
+            self.show_inline_message(
+                self.switch_database_message,
+                self.tr("database_path_required"),
+                ALERT_DANGER,
+            )
             return
 
         try:
-            tested_db = self._open_database_from_path(database_path)
-            tested_db.get_tasks(limit=1)
-        except Exception as exc:
-            QMessageBox.warning(self, self.tr("database"), self.tr("could_not_open_database", error=exc))
+            target_db = self._database_file_service().open_existing_database(database_path)
+        except DatabasePathError as exc:
+            self.show_inline_message(
+                self.switch_database_message,
+                self.tr(exc.key, **exc.kwargs),
+                ALERT_DANGER,
+            )
             return
 
         try:
-            save_database_path(database_path, self.config_path)
+            save_database_path(target_db.db_path, self.config_path)
             self.db = MindTaskDB(config_path=self.config_path)
             self.database_path_edit.setText(self.db.db_path)
             self._refresh_about_settings_info()
             self._refresh_data_settings_info()
             self.show_inline_message(self.switch_database_message, self.tr("database_updated"))
+            self.show_status_message("status_database_switched", name=Path(self.db.db_path).name)
             self.refresh_all()
         except Exception as exc:
-            QMessageBox.warning(self, self.tr("database"), self.tr("database_opened_config_failed", error=exc))
+            self.show_inline_message(
+                self.switch_database_message,
+                self.tr("database_opened_config_failed", error=exc),
+                ALERT_DANGER,
+            )
 
     def browse_database_path(self) -> None:
         current = self.database_path_edit.text().strip() or self.db.db_path
@@ -472,37 +534,59 @@ class SettingsPageMixin(ShortcutSettingsMixin):
     def create_database_from_settings(self) -> None:
         database_path = self.new_database_path_edit.text().strip()
         if not database_path:
-            QMessageBox.warning(self, self.tr("database"), self.tr("new_database_required"))
+            self.show_inline_message(
+                self.new_database_message,
+                self.tr("new_database_required"),
+                ALERT_DANGER,
+            )
             return
 
-        target = Path(database_path)
-        if target.exists():
-            QMessageBox.warning(self, self.tr("database"), self.tr("database_file_exists"))
+        try:
+            target = self._database_file_service().inspect_new_database_target(database_path)
+        except DatabasePathError as exc:
+            self.show_inline_message(
+                self.new_database_message,
+                self.tr(exc.key, **exc.kwargs),
+                ALERT_DANGER,
+            )
             return
 
+        confirm_message = (
+            self.tr("overwrite_database_confirm", path=str(target.path))
+            if target.exists
+            else self.tr("create_database_confirm")
+        )
         if not confirm_question(
             self,
             self.tr("create_database"),
-            self.tr("create_database_confirm"),
+            confirm_message,
             self.translator,
         ):
             return
 
         try:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            new_db = self._open_database_from_path(str(target))
-            new_db.create_sample_data()
-            new_db.get_tasks(limit=1)
-            save_database_path(str(target), self.config_path)
+            new_db = self._database_file_service().create_database(str(target.path), overwrite=target.exists)
+            save_database_path(new_db.db_path, self.config_path)
             self.db = MindTaskDB(config_path=self.config_path)
             self.database_path_edit.setText(self.db.db_path)
             self.new_database_path_edit.clear()
             self._refresh_about_settings_info()
             self._refresh_data_settings_info()
             self.show_inline_message(self.new_database_message, self.tr("database_created"))
+            self.show_status_message("status_database_created", name=Path(self.db.db_path).name)
             self.refresh_all()
+        except DatabasePathError as exc:
+            self.show_inline_message(
+                self.new_database_message,
+                self.tr(exc.key, **exc.kwargs),
+                ALERT_DANGER,
+            )
         except Exception as exc:
-            QMessageBox.warning(self, self.tr("database"), self.tr("could_not_create_database", error=exc))
+            self.show_inline_message(
+                self.new_database_message,
+                self.tr("could_not_create_database", error=exc),
+                ALERT_DANGER,
+            )
 
     def reload_current_database(self) -> None:
         try:
@@ -511,18 +595,26 @@ class SettingsPageMixin(ShortcutSettingsMixin):
             self._refresh_about_settings_info()
             self._refresh_data_settings_info()
             self.show_inline_message(self.reload_database_message, self.tr("database_reloaded"))
+            self.show_status_message("status_database_reloaded", name=Path(self.db.db_path).name)
             self.refresh_all()
         except Exception as exc:
-            QMessageBox.warning(self, self.tr("database"), self.tr("could_not_reload_database", error=exc))
+            self.show_inline_message(
+                self.reload_database_message,
+                self.tr("could_not_reload_database", error=exc),
+                ALERT_DANGER,
+            )
 
     def backup_current_database(self) -> None:
-        source = Path(self.db.db_path)
-        if not source.exists():
-            QMessageBox.warning(self, self.tr("database"), self.tr("database_file_not_found"))
+        service = self._database_file_service()
+        try:
+            default_path = service.default_backup_path(self.db.db_path)
+        except DatabasePathError as exc:
+            self.show_inline_message(
+                self.reload_database_message,
+                self.tr(exc.key, **exc.kwargs),
+                ALERT_DANGER,
+            )
             return
-
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        default_path = source.with_name(f"{source.stem}-backup-{timestamp}{source.suffix or '.db'}")
         target_path, _ = QFileDialog.getSaveFileName(
             self,
             self.tr("backup_database"),
@@ -533,27 +625,18 @@ class SettingsPageMixin(ShortcutSettingsMixin):
             return
 
         try:
-            target = Path(target_path)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, target)
+            target = service.backup_database(self.db.db_path, target_path)
             self.show_inline_message(self.reload_database_message, self.tr("database_backup_created", path=str(target)))
-        except Exception as exc:
-            QMessageBox.warning(self, self.tr("database"), self.tr("could_not_backup_database", error=exc))
+            self.show_status_message("status_database_backed_up", name=target.name)
+        except DatabasePathError as exc:
+            self.show_inline_message(
+                self.reload_database_message,
+                self.tr(exc.key, **exc.kwargs),
+                ALERT_DANGER,
+            )
 
-    def _open_database_from_path(self, database_path: str) -> MindTaskDB:
-        config = self.db.config
-        with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".ini", delete=False) as fh:
-            temp_config_path = fh.name
-            fh.write("[database]\n")
-            fh.write(f"path = {database_path}\n")
-            fh.write("\n")
-            fh.write("[app]\n")
-            fh.write(f"default_task_limit = {config.default_task_limit}\n")
-            fh.write(f"default_search_limit = {config.default_search_limit}\n")
-        try:
-            return MindTaskDB(config_path=temp_config_path)
-        finally:
-            Path(temp_config_path).unlink(missing_ok=True)
+    def _database_file_service(self) -> DatabaseFileService:
+        return DatabaseFileService(self.config_path, language=self.language)
 
     def _refresh_about_settings_info(self) -> None:
         if not hasattr(self, "about_config_file_value_label"):

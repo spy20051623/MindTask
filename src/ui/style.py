@@ -259,9 +259,40 @@ QLabel#SectionLabel {{
 QLabel#MutedLabel {{
     color: {colors["muted_text"]};
 }}
-QLabel#WarningLabel {{
-    color: {"#d97706" if resolved == THEME_LIGHT else "#fbbf24"};
+QWidget#AlertMessage {{
+    background: transparent;
+    min-width: 0;
+}}
+QLabel#AlertIcon {{
+    background: transparent;
+    border-radius: 9px;
+    font-weight: 800;
+    padding: 0;
+}}
+QLabel#AlertText {{
+    background: transparent;
     font-weight: 600;
+}}
+QLabel#AlertIcon[alertSeverity="0"] {{
+    color: {"#2563eb" if resolved == THEME_LIGHT else "#60a5fa"};
+    border: 1px solid {"#2563eb" if resolved == THEME_LIGHT else "#60a5fa"};
+}}
+QLabel#AlertText[alertSeverity="0"] {{
+    color: {"#2563eb" if resolved == THEME_LIGHT else "#60a5fa"};
+}}
+QLabel#AlertIcon[alertSeverity="1"] {{
+    color: {"#d97706" if resolved == THEME_LIGHT else "#fbbf24"};
+    border: 1px solid {"#d97706" if resolved == THEME_LIGHT else "#fbbf24"};
+}}
+QLabel#AlertText[alertSeverity="1"] {{
+    color: {"#d97706" if resolved == THEME_LIGHT else "#fbbf24"};
+}}
+QLabel#AlertIcon[alertSeverity="2"] {{
+    color: {"#dc2626" if resolved == THEME_LIGHT else "#f87171"};
+    border: 1px solid {"#dc2626" if resolved == THEME_LIGHT else "#f87171"};
+}}
+QLabel#AlertText[alertSeverity="2"] {{
+    color: {"#dc2626" if resolved == THEME_LIGHT else "#f87171"};
 }}
 QLabel#ChecklistItemLabel {{
     color: {colors["text"]};

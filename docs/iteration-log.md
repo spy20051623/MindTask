@@ -16,6 +16,12 @@ Update it immediately before creating a release commit, not after every local ch
 
 ## Entries
 
+## 1.2.7 - 2026-05-21
+
+- Summary: Refine task detail clarity, settings feedback, and database file safety before release.
+- Changed: Added a setting to hide completed tasks, unified inline alert messages with severity colors, clarified that checklist items sync from task details, shortened existing task drawer titles to `Task #n`, strengthened database path validation with absolute-path and SQLite suffix requirements, moved database file operations into a dedicated service, supported confirmed overwrite when creating databases, and kept database setting errors as inline danger alerts instead of modal warnings.
+- Verified: Ran Python compile checks and offscreen desktop UI smoke checks for hide-completed filtering, alert message timing and sizing, checklist source labeling, task drawer titles, database path validation, existing-database switching, new-database overwrite, and database backup flows.
+
 ## 1.2.6 - 2026-05-20
 
 - Summary: Add Markdown-backed checklists to the task detail drawer and tighten task-page drawer behavior.

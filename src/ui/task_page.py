@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 
 from .constants import PRIORITY_LABELS, PRIORITY_TRANSLATION_KEYS, STATUS_LABELS, STATUS_TRANSLATION_KEYS
 from .icons import themed_icon
+from .alert_message import ALERT_DANGER, ALERT_WARN
 from .style import THEME_DARK, badge_colors_for_theme, colors_for_theme, resolve_theme
 
 
@@ -433,6 +434,8 @@ class TaskPageMixin:
 
         if task_view is not None:
             tasks = self._filter_due_tasks(tasks, task_view)
+        if getattr(self, "hide_completed_tasks", False):
+            tasks = [task for task in tasks if not self._task_completed(task)]
 
         tasks = self._sort_tasks(tasks)
         self.tasks = tasks
@@ -470,7 +473,7 @@ class TaskPageMixin:
         self.task_table.resizeRowsToContents()
         self.task_count_label.setText(self.tr("task_count", count=len(tasks)))
         self.task_stack.setCurrentWidget(self.task_table if tasks else self.empty_label)
-        self.statusBar().showMessage(self.tr("task_count", count=len(tasks)))
+        self.show_task_count_status()
         selected_task = None
         if self.selected_task_id is not None:
             selected_task = next((task for task in tasks if task["id"] == self.selected_task_id), None)
@@ -732,11 +735,10 @@ class TaskPageMixin:
         if due_alert is None:
             self.due_alert_row.hide()
             self.due_alert_spacer_label.hide()
-            self.due_alert_value_label.clear()
+            self.due_alert_row.clear_message()
         else:
             severity, message = due_alert
-            self.due_alert_value_label.setText(message)
-            self._apply_due_alert_style(severity)
+            self.due_alert_row.set_message(message, severity)
             self.due_alert_spacer_label.show()
             self.due_alert_row.show()
         self.created_at_value_label.setText(self._format_detail_timestamp(task.get("created_at")))
@@ -760,7 +762,7 @@ class TaskPageMixin:
         task = self.db.get_task(self.selected_task_id)
         return bool(task and task.get("status") == 3)
 
-    def _task_due_alert(self, task: Dict[str, Any]) -> Optional[tuple[str, str]]:
+    def _task_due_alert(self, task: Dict[str, Any]) -> Optional[tuple[int, str]]:
         if task.get("status") == 3:
             return None
         due_date = task.get("due_date")
@@ -772,11 +774,11 @@ class TaskPageMixin:
                 return None
             days = (task_due_date - date.today()).days
             if days < 0:
-                return "danger", self.tr("due_alert_overdue")
+                return ALERT_DANGER, self.tr("due_alert_overdue")
             if days == 0:
-                return "danger", self.tr("due_alert_today")
+                return ALERT_DANGER, self.tr("due_alert_today")
             if days <= 3:
-                return "warning", self.tr("due_alert_days_left", days=days)
+                return ALERT_WARN, self.tr("due_alert_days_left", days=days)
             return None
         try:
             task_due_at = datetime.strptime(str(due_date), "%Y-%m-%d %H:%M:%S")
@@ -784,31 +786,18 @@ class TaskPageMixin:
             return None
         remaining = task_due_at - datetime.now()
         if remaining.total_seconds() < 0:
-            return "danger", self.tr("due_alert_overdue")
+            return ALERT_DANGER, self.tr("due_alert_overdue")
         if remaining < timedelta(hours=24):
             total_minutes = max(1, ceil(remaining.total_seconds() / 60))
             hours, minutes = divmod(total_minutes, 60)
-            return "danger", self.tr("due_alert_time_left", hours=hours, minutes=minutes)
+            return ALERT_DANGER, self.tr("due_alert_time_left", hours=hours, minutes=minutes)
         task_due_date = self._task_due_date(task)
         if task_due_date is None:
             return None
         days = (task_due_date - date.today()).days
         if 1 <= days <= 3:
-            return "warning", self.tr("due_alert_days_left", days=days)
+            return ALERT_WARN, self.tr("due_alert_days_left", days=days)
         return None
-
-    def _apply_due_alert_style(self, severity: str) -> None:
-        if severity == "danger":
-            foreground = "#ef4444" if resolve_theme(self.theme, QApplication.instance()) != THEME_DARK else "#f87171"
-        else:
-            foreground = "#f59e0b" if resolve_theme(self.theme, QApplication.instance()) != THEME_DARK else "#fbbf24"
-        icon_style = (
-            f"color: {foreground}; border: 1px solid {foreground}; border-radius: 9px; "
-            "font-weight: 700; background: transparent;"
-        )
-        text_style = f"color: {foreground}; font-weight: 600; background: transparent;"
-        self.due_alert_icon_label.setStyleSheet(icon_style)
-        self.due_alert_value_label.setStyleSheet(text_style)
 
     def _format_detail_timestamp(self, value: object) -> str:
         if not value:

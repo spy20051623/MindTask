@@ -41,6 +41,7 @@ from ..core import (
     get_config_path,
     normalize_due_date,
 )
+from .alert_message import ALERT_WARN, AlertMessage
 from .constants import (
     HISTORY_ENTITY_TRANSLATION_KEYS,
     PRIORITY_LABELS,
@@ -51,15 +52,10 @@ from .constants import (
     STATUS_VALUES,
 )
 from .checklist_markdown import (
-    CHECKLIST_ITEM_TEXT,
-    append_checklist_item,
-    checklist_item_text_span,
     complete_all_checklist_items,
-    delete_checklist_item_line,
     parse_checklist_items,
-    toggle_checklist_item_line,
-    update_checklist_item_text_line,
 )
+from .checklist_panel import ChecklistPanelMixin
 from .dialog_helpers import confirm_question, required_label
 from .due_date_editor import DueDateEditor
 from .icons import icon_button, set_action_button_icon, themed_icon
@@ -67,6 +63,7 @@ from .i18n import Translator
 from .markdown import render_markdown_html
 from .project_page import ProjectPageMixin
 from .settings_page import SettingsPageMixin
+from .status_bar import StatusBarMixin
 from .style import badge_colors_for_theme, build_app_style, colors_for_theme
 from .task_page import TaskPageMixin
 from .shortcut_editor import SHIFTED_KEY_ALIASES
@@ -80,47 +77,6 @@ DETAIL_ANIMATION_DURATION_MS = 240
 SIDEBAR_WIDTH = 220
 
 
-class ChecklistItemLabel(QLabel):
-    """Clickable label that asks the parent window to edit a checklist item."""
-
-    def __init__(self, text: str, handler: Any, parent: Optional[QWidget] = None):
-        super().__init__(text, parent)
-        self._handler = handler
-
-    def mouseDoubleClickEvent(self, event: Any) -> None:
-        self._handler()
-        super().mouseDoubleClickEvent(event)
-
-
-class ChecklistItemEdit(QLineEdit):
-    """Inline checklist editor with Enter-save and Esc-cancel behavior."""
-
-    def __init__(self, text: str, save_handler: Any, cancel_handler: Any, parent: Optional[QWidget] = None):
-        super().__init__(text, parent)
-        self._save_handler = save_handler
-        self._cancel_handler = cancel_handler
-        self._finished = False
-
-    def keyPressEvent(self, event: Any) -> None:
-        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            self._finished = True
-            self._save_handler(self.text())
-            event.accept()
-            return
-        if event.key() == Qt.Key.Key_Escape:
-            self._finished = True
-            self._cancel_handler()
-            event.accept()
-            return
-        super().keyPressEvent(event)
-
-    def focusOutEvent(self, event: Any) -> None:
-        if not self._finished:
-            self._finished = True
-            self._save_handler(self.text())
-        super().focusOutEvent(event)
-
-
 class NoWheelComboBox(QComboBox):
     """Combo box that ignores mouse wheel changes in the detail drawer."""
 
@@ -132,7 +88,7 @@ class NoWheelComboBox(QComboBox):
         event.ignore()
 
 
-class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWindow):
+class MindTaskWindow(StatusBarMixin, ChecklistPanelMixin, SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWindow):
     """Task-focused desktop shell around the existing MindTask core."""
 
     def __init__(self, config_path: Optional[str] = None):
@@ -144,6 +100,7 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         self.theme = self.db.config.ui_theme
         self.language = self.db.config.ui_language
         self.smart_task_sorting = self.db.config.smart_task_sorting
+        self.hide_completed_tasks = self.db.config.hide_completed_tasks
         self.shortcut_sequences = dict(self.db.config.ui_shortcuts)
         self.task_sort_column = 0
         self.task_sort_order = Qt.SortOrder.AscendingOrder
@@ -385,6 +342,8 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         self.checklist_title_label = self._section_label("")
         self.checklist_progress_label = QLabel()
         self.checklist_progress_label.setObjectName("MutedLabel")
+        self.checklist_source_label = QLabel()
+        self.checklist_source_label.setObjectName("MutedLabel")
         self.add_checklist_item_button = self._icon_button(
             "",
             "fa6s.plus",
@@ -395,6 +354,7 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         self.add_checklist_item_button.setIconSize(QSize(15, 15))
         checklist_header_layout.addWidget(self.checklist_title_label)
         checklist_header_layout.addWidget(self.checklist_progress_label)
+        checklist_header_layout.addWidget(self.checklist_source_label)
         checklist_header_layout.addStretch()
         checklist_header_layout.addWidget(self.add_checklist_item_button)
         self.checklist_items_widget = QWidget()
@@ -412,20 +372,7 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         self.project_combo = NoWheelComboBox()
         self.due_editor = DueDateEditor(language=self.language)
         self.due_editor.setObjectName("DueDateEditor")
-        self.due_alert_row = QWidget()
-        self.due_alert_row.setObjectName("TransparentRow")
-        due_alert_layout = QHBoxLayout(self.due_alert_row)
-        due_alert_layout.setContentsMargins(0, 0, 0, 0)
-        due_alert_layout.setSpacing(6)
-        self.due_alert_icon_label = QLabel("!")
-        self.due_alert_icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.due_alert_icon_label.setFixedSize(18, 18)
-        self.due_alert_value_label = QLabel()
-        self.due_alert_value_label.setObjectName("MutedLabel")
-        due_alert_layout.addWidget(self.due_alert_icon_label)
-        due_alert_layout.addWidget(self.due_alert_value_label)
-        due_alert_layout.addStretch()
-        self.due_alert_row.hide()
+        self.due_alert_row = AlertMessage()
         self.created_at_value_label = QLabel()
         self.created_at_value_label.setObjectName("MutedLabel")
         self.updated_at_value_label = QLabel()
@@ -691,7 +638,6 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
             self.priority_combo,
             self.project_combo,
             self.due_editor,
-            self.due_alert_row,
             self.completed_at_row,
         ):
             widget.setMaximumWidth(DETAIL_FIELD_WIDTH)
@@ -758,8 +704,7 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         self.history_undo_to_selected_button = QPushButton()
         self.history_undo_to_selected_button.setObjectName("DangerButton")
         self.history_undo_to_selected_button.clicked.connect(self.undo_to_selected_from_history_drawer)
-        self.history_undo_warning_label = QLabel()
-        self.history_undo_warning_label.setObjectName("WarningLabel")
+        self.history_undo_warning_label = AlertMessage()
         button_row.addWidget(self.history_undo_latest_button)
         button_row.addWidget(self.history_undo_to_selected_button)
         button_row.addWidget(self.history_undo_warning_label)
@@ -825,6 +770,7 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         self.refresh_task_history_button.setToolTip(self.tr("refresh"))
         self.refresh_task_history_button.setAccessibleName(self.tr("refresh"))
         self.checklist_title_label.setText(self.tr("checklist"))
+        self.checklist_source_label.setText(self.tr("checklist_source_detail"))
         self.add_checklist_item_button.setToolTip(self.tr("add_checklist_item"))
         self.add_checklist_item_button.setAccessibleName(self.tr("add_checklist_item"))
         self.checklist_empty_label.setText(self.tr("no_checklist_items"))
@@ -841,7 +787,7 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         )
         self.history_undo_latest_button.setText(self.tr("undo_latest"))
         self.history_undo_to_selected_button.setText(self.tr("undo_to_selected"))
-        self.history_undo_warning_label.setText(self.tr("undo_warning"))
+        self.history_undo_warning_label.set_message(self.tr("undo_warning"), ALERT_WARN)
 
         self.projects_title_label.setText(self.tr("projects"))
         self.close_projects_drawer_button.setToolTip(self.tr("close"))
@@ -899,6 +845,7 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         elif index == 1:
             self.tasks_nav_button.setObjectName("NavButton")
             self.settings_nav_button.setObjectName("NavButtonActive")
+            self.show_settings_status()
         self.tasks_nav_button.style().unpolish(self.tasks_nav_button)
         self.tasks_nav_button.style().polish(self.tasks_nav_button)
         self.settings_nav_button.style().unpolish(self.settings_nav_button)
@@ -972,6 +919,7 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         if self.projects_drawer_animation_closes:
             self.projects_drawer_animation.finished.disconnect()
         self.projects_drawer_animation_closes = False
+        self.show_task_count_status()
 
     def _projects_drawer_open_geometry(self) -> QRect:
         width = max(0, self.tasks_page_container.width() - SIDEBAR_WIDTH)
@@ -1032,6 +980,7 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         if self.history_drawer_animation_closes:
             self.history_drawer_animation.finished.disconnect()
         self.history_drawer_animation_closes = False
+        self.show_task_count_status()
 
     def _history_drawer_open_geometry(self) -> QRect:
         width = max(0, self.tasks_page_container.width() - SIDEBAR_WIDTH)
@@ -1181,8 +1130,10 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
 
         if self.selected_task_id is None:
             return False
+        task_id = self.selected_task_id
+        transitioning_to_completed = self._task_is_transitioning_to_completed()
 
-        if self._task_is_transitioning_to_completed():
+        if transitioning_to_completed:
             completion_choice = self._confirm_incomplete_checklist_completion()
             if completion_choice == "cancel":
                 return False
@@ -1205,6 +1156,8 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
 
         self.refresh_all(force_detail=True)
         self.close_task_detail(force=True)
+        status_key = "status_task_completed" if transitioning_to_completed else "status_task_saved"
+        self.show_task_operation_status(status_key, id=task_id)
         return True
 
     def create_task_from_detail(self, due_date: Optional[str]) -> bool:
@@ -1225,6 +1178,7 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         self.selected_task_id = task_id
         self.refresh_all(force_detail=True)
         self._select_task(task_id)
+        self.show_task_operation_status("status_task_created", id=task_id)
         return True
 
     def _task_is_transitioning_to_completed(self) -> bool:
@@ -1289,147 +1243,6 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
                 list_format.setIndent(max(1, list_format.indent()))
                 text_list.setFormat(list_format)
             block = block.next()
-
-    def refresh_checklist_from_description(self) -> None:
-        if not hasattr(self, "checklist_items_layout"):
-            return
-        while self.checklist_items_layout.count():
-            item = self.checklist_items_layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
-
-        items = parse_checklist_items(self.description_edit.toPlainText())
-        completed = sum(1 for item in items if item.completed)
-        total = len(items)
-        self.checklist_progress_label.setText(self.tr("checklist_progress", completed=completed, total=total))
-        self.checklist_empty_label.setVisible(total == 0)
-        self.checklist_items_widget.setVisible(total > 0)
-
-        for index, checklist_item in enumerate(items):
-            row = QWidget()
-            row.setObjectName("TransparentRow")
-            row.setProperty("lineIndex", checklist_item.line_index)
-            row.setProperty("itemText", checklist_item.text)
-            row_layout = QHBoxLayout(row)
-            row_layout.setContentsMargins(0, 0, 0, 0)
-            row_layout.setSpacing(6)
-            done_button = QPushButton()
-            done_button.setCheckable(True)
-            done_button.setChecked(checklist_item.completed)
-            done_button.setAccessibleName(self.tr("toggle_checklist_item"))
-            done_button.setObjectName("ChecklistDoneButton")
-            done_button.setFixedSize(24, 24)
-            done_button.setIconSize(QSize(14, 14))
-            self._set_checklist_done_button_icon(done_button)
-            done_button.clicked.connect(
-                lambda _checked=False, line_index=checklist_item.line_index, text=checklist_item.text: (
-                    self.toggle_checklist_item_in_description(line_index, text)
-                )
-            )
-            label = ChecklistItemLabel(
-                checklist_item.text or self.tr("untitled_checklist_item"),
-                lambda line_index=checklist_item.line_index, text=checklist_item.text: (
-                    self.edit_checklist_item_text(line_index, text)
-                ),
-            )
-            label.setObjectName("ChecklistItemLabel")
-            label.setToolTip(self.tr("edit_checklist_item"))
-            delete_button = self._icon_button(
-                self.tr("delete_checklist_item"),
-                "fa6s.minus",
-                "-",
-                lambda line_index=checklist_item.line_index, text=checklist_item.text: (
-                    self.delete_checklist_item_from_description(line_index, text)
-                ),
-            )
-            delete_button.setFixedSize(28, 28)
-            delete_button.setIconSize(QSize(15, 15))
-            row_layout.addWidget(done_button)
-            row_layout.addWidget(label, 1)
-            row_layout.addWidget(delete_button)
-            self.checklist_items_layout.addWidget(row)
-
-    def toggle_checklist_item_in_description(self, line_index: int, expected_text: str) -> None:
-        updated = toggle_checklist_item_line(self.description_edit.toPlainText(), line_index, expected_text)
-        if updated == self.description_edit.toPlainText():
-            QMessageBox.information(self, self.tr("checklist"), self.tr("checklist_item_mismatch"))
-            self.refresh_checklist_from_description()
-            return
-        self._set_description_draft(updated)
-
-    def edit_checklist_item_text(self, line_index: int, expected_text: str) -> None:
-        if not self._checklist_line_matches(line_index, expected_text):
-            QMessageBox.information(self, self.tr("checklist"), self.tr("checklist_item_mismatch"))
-            self.refresh_checklist_from_description()
-            return
-        row = self._checklist_row_widget(line_index, expected_text)
-        if row is None:
-            self.refresh_checklist_from_description()
-            return
-        layout = row.layout()
-        if layout is None:
-            return
-        old_label_item = layout.itemAt(1)
-        old_label = old_label_item.widget() if old_label_item is not None else None
-        if old_label is not None:
-            old_label.hide()
-        editor = ChecklistItemEdit(
-            expected_text,
-            lambda new_text, line_index=line_index, expected_text=expected_text: (
-                self.save_checklist_item_text(line_index, expected_text, new_text)
-            ),
-            self.refresh_checklist_from_description,
-        )
-        editor.setObjectName("ChecklistInlineEditor")
-        layout.insertWidget(1, editor, 1)
-        editor.setFocus(Qt.FocusReason.MouseFocusReason)
-        editor.selectAll()
-
-    def save_checklist_item_text(self, line_index: int, expected_text: str, new_text: str) -> None:
-        updated = update_checklist_item_text_line(self.description_edit.toPlainText(), line_index, expected_text, new_text)
-        if updated == self.description_edit.toPlainText():
-            if not self._checklist_line_matches(line_index, expected_text):
-                QMessageBox.information(self, self.tr("checklist"), self.tr("checklist_item_mismatch"))
-            self.refresh_checklist_from_description()
-            return
-        self._set_description_draft(updated)
-
-    def _checklist_row_widget(self, line_index: int, expected_text: str) -> Optional[QWidget]:
-        for index in range(self.checklist_items_layout.count()):
-            item = self.checklist_items_layout.itemAt(index)
-            widget = item.widget() if item is not None else None
-            if (
-                widget is not None
-                and widget.property("lineIndex") == line_index
-                and widget.property("itemText") == expected_text
-            ):
-                return widget
-        return None
-
-    def _checklist_line_matches(self, line_index: int, expected_text: str) -> bool:
-        items = parse_checklist_items(self.description_edit.toPlainText())
-        return any(item.line_index == line_index and item.text == expected_text for item in items)
-
-    def delete_checklist_item_from_description(self, line_index: int, expected_text: str) -> None:
-        if not confirm_question(
-            self,
-            self.tr("delete_checklist_item"),
-            self.tr("delete_checklist_item_confirm", item=expected_text or self.tr("untitled_checklist_item")),
-            self.translator,
-        ):
-            return
-        updated = delete_checklist_item_line(self.description_edit.toPlainText(), line_index, expected_text)
-        if updated == self.description_edit.toPlainText():
-            QMessageBox.information(self, self.tr("checklist"), self.tr("checklist_item_mismatch"))
-            self.refresh_checklist_from_description()
-            return
-        self._set_description_draft(updated)
-
-    def add_checklist_item_to_description(self) -> None:
-        updated, line_index = append_checklist_item(self.description_edit.toPlainText(), CHECKLIST_ITEM_TEXT)
-        self._set_description_draft(updated)
-        self.edit_checklist_item_text(line_index, CHECKLIST_ITEM_TEXT)
 
     def _set_description_draft(self, markdown_text: str) -> None:
         cursor_position = self.description_edit.textCursor().position()
@@ -1571,8 +1384,10 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         if not confirm_question(self, self.tr("delete_task"), self.tr("delete_task_confirm"), self.translator):
             return
         self.db.delete_task(self.selected_task_id)
+        task_id = self.selected_task_id
         self.refresh_all(force_detail=True)
         self.close_task_detail(force=True)
+        self.show_task_operation_status("status_task_deleted", id=task_id)
 
     def open_history_dialog(self) -> None:
         if self._is_tasks_page() and self._is_history_drawer_open():
@@ -1613,6 +1428,8 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         self.history_drawer_table.resizeRowsToContents()
         self.history_undo_latest_button.setEnabled(any(not row.get("undone_at") for row in rows))
         self.history_undo_to_selected_button.setEnabled(bool(rows))
+        if self._is_history_drawer_open():
+            self.show_history_count_status()
 
     def undo_latest_from_history_drawer(self) -> None:
         if not confirm_question(
@@ -1629,6 +1446,7 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
             return
         self.refresh_all(force_detail=True)
         self.refresh_history_drawer()
+        self.show_history_operation_status(1)
 
     def undo_to_selected_from_history_drawer(self) -> None:
         history_id = self._selected_history_drawer_id()
@@ -1657,6 +1475,7 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
 
         self.refresh_all(force_detail=True)
         self.refresh_history_drawer()
+        self.show_history_operation_status(len(undone))
 
     def _selected_history_drawer_id(self) -> Optional[int]:
         rows = self.history_drawer_table.selectionModel().selectedRows()
@@ -1691,7 +1510,7 @@ class MindTaskWindow(SettingsPageMixin, ProjectPageMixin, TaskPageMixin, QMainWi
         self.project_combo.setCurrentIndex(0)
         self.due_editor.clear()
         self.task_detail_title_label.setText(self.tr("task_detail"))
-        self.due_alert_value_label.clear()
+        self.due_alert_row.clear_message()
         self.due_alert_spacer_label.hide()
         self.due_alert_row.hide()
         self.created_at_value_label.clear()

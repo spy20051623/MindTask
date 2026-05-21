@@ -9,6 +9,7 @@ default_search_limit = 20
 theme = system
 language = en
 smart_task_sorting = true
+hide_completed_tasks = false
 
 [shortcuts]
 open_tasks = Ctrl+1
