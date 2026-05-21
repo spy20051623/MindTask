@@ -10,10 +10,6 @@ def write_config(tmp_path):
         f"""
 [database]
 path = {db_path}
-
-[app]
-default_task_limit = 100
-default_search_limit = 20
 """.strip(),
         encoding="utf-8",
     )
@@ -70,6 +66,17 @@ def test_search_and_stats(tmp_path):
     assert stats["pending_tasks"] == 2
 
 
+def test_task_list_and_search_are_unlimited_by_default(tmp_path):
+    db = MindTaskDB(config_path=write_config(tmp_path))
+    for index in range(25):
+        db.create_task(f"Bulk task {index:02d}")
+
+    assert len(db.get_tasks()) == 25
+    assert len(db.search_tasks("Bulk")) == 25
+    assert len(db.get_tasks(limit=5)) == 5
+    assert len(db.search_tasks("Bulk", limit=5)) == 5
+
+
 def test_database_initialization_does_not_seed_projects(tmp_path):
     db = MindTaskDB(config_path=write_config(tmp_path))
 
@@ -84,10 +91,6 @@ def test_missing_config_is_created_from_template(tmp_path, monkeypatch):
         f"""
 [database]
 path = {db_path}
-
-[app]
-default_task_limit = 42
-default_search_limit = 12
 
 [ui]
 theme = dark
@@ -106,8 +109,6 @@ delete_task = Ctrl+D
 
     assert created_path == config_path
     assert config_path.exists()
-    assert config.default_task_limit == 42
-    assert config.default_search_limit == 12
     assert config.ui_theme == "dark"
     assert config.ui_language == "zh"
     assert config.ui_shortcuts["delete_task"] == "Ctrl+D"

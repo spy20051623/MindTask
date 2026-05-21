@@ -36,7 +36,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 1
 
     from .main_window import MindTaskWindow
-    from .style import THEME_SYSTEM, build_app_style
+    from .shared.style import THEME_SYSTEM, build_app_style
     from .welcome import WelcomeDialog
 
     app = QApplication([sys.argv[0]])

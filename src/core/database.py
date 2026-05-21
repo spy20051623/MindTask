@@ -380,7 +380,7 @@ class MindTaskDB:
         project_id: Optional[int] = None,
         status: Optional[int] = None,
         priority: Optional[int] = None,
-        limit: int = 100,
+        limit: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         query = "SELECT * FROM task_details WHERE 1=1"
         params: List[Any] = []
@@ -395,8 +395,10 @@ class MindTaskDB:
             query += " AND priority = ?"
             params.append(priority)
 
-        query += " ORDER BY id ASC LIMIT ?"
-        params.append(limit)
+        query += " ORDER BY id ASC"
+        if limit is not None:
+            query += " LIMIT ?"
+            params.append(limit)
 
         with self._connect() as conn:
             rows = conn.execute(query, params).fetchall()
@@ -524,27 +526,30 @@ class MindTaskDB:
 
             return stats
 
-    def search_tasks(self, keyword: str, limit: int = 50) -> List[Dict[str, Any]]:
+    def search_tasks(self, keyword: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         pattern = f"%{keyword}%"
+        query = """
+            SELECT * FROM task_details
+            WHERE title LIKE ? OR description LIKE ?
+            ORDER BY id ASC
+        """
+        params: List[Any] = [pattern, pattern]
+        if limit is not None:
+            query += " LIMIT ?"
+            params.append(limit)
         with self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT * FROM task_details
-                WHERE title LIKE ? OR description LIKE ?
-                ORDER BY id ASC
-                LIMIT ?
-                """,
-                (pattern, pattern, limit),
-            ).fetchall()
+            rows = conn.execute(query, params).fetchall()
             return [dict(row) for row in rows]
 
-    def get_history(self, limit: int = 50, include_undone: bool = False) -> List[Dict[str, Any]]:
+    def get_history(self, limit: Optional[int] = None, include_undone: bool = False) -> List[Dict[str, Any]]:
         query = "SELECT * FROM operation_history"
         params: List[Any] = []
         if not include_undone:
             query += " WHERE undone_at IS NULL"
-        query += " ORDER BY id DESC LIMIT ?"
-        params.append(limit)
+        query += " ORDER BY id DESC"
+        if limit is not None:
+            query += " LIMIT ?"
+            params.append(limit)
 
         with self._connect() as conn:
             rows = conn.execute(query, params).fetchall()

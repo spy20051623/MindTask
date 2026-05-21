@@ -1,4 +1,4 @@
-# Iteration Log
+# Release Notes
 
 This file is maintained by version.
 
@@ -15,6 +15,12 @@ Update it immediately before creating a release commit, not after every local ch
 ```
 
 ## Entries
+
+## 1.2.8 - 2026-05-21
+
+- Summary: Reorganize UI modules, refresh bilingual documentation, and prepare clearer Windows packages.
+- Changed: Grouped UI code by page ownership into task, settings, and shared modules; converted checklist Markdown helpers to the `ChecklistMarkdown` class API; split task and database settings logic into smaller focused modules; refreshed README and user docs with English and Chinese versions; removed obsolete task/search default limit configuration and made CLI list/search/history/export unrestricted unless `--limit` is provided; cleaned stale documentation and empty directories; and updated Windows packaging so `README.md`, `README.zh.md`, and `docs` are included next to `MindTask.exe`.
+- Verified: Ran Python compile checks, CLI version and no-limit smoke checks, focused core/database smoke checks, offscreen desktop UI smoke checks for the updated task/settings flows, and PowerShell syntax checks for the Windows packaging script.
 
 ## 1.2.7 - 2026-05-21
 

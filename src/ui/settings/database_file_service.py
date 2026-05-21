@@ -6,13 +6,14 @@ import os
 import shutil
 import sqlite3
 import tempfile
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from ..core import MindTaskDB
-from ..core.config import load_config
+from ...core import MindTaskDB
+from ...core.config import load_config
 
 
 SQLITE_HEADER = b"SQLite format 3\x00"
@@ -104,9 +105,6 @@ class DatabaseFileService:
             temp_config_path = fh.name
             fh.write("[database]\n")
             fh.write(f"path = {database_path}\n\n")
-            fh.write("[app]\n")
-            fh.write(f"default_task_limit = {config.default_task_limit}\n")
-            fh.write(f"default_search_limit = {config.default_search_limit}\n\n")
             fh.write("[ui]\n")
             fh.write(f"theme = {config.ui_theme}\n")
             fh.write(f"language = {self.language or config.ui_language}\n")
@@ -134,7 +132,7 @@ class DatabaseFileService:
             raise DatabasePathError("could_not_open_database", error=exc) from exc
 
         try:
-            with sqlite3.connect(f"{path.as_uri()}?mode=rw", uri=True) as conn:
+            with closing(sqlite3.connect(f"{path.as_uri()}?mode=rw", uri=True)) as conn:
                 quick_check = conn.execute("PRAGMA quick_check").fetchone()
                 if not quick_check or quick_check[0] != "ok":
                     raise DatabasePathError("database_integrity_check_failed")

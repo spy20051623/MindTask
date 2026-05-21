@@ -1,125 +1,100 @@
 # MindTask
 
-MindTask is a small SQLite-backed task manager with two entry points:
+[中文](README.zh.md) | English
 
-- A PySide6 desktop UI for daily task work
-- CLI commands for scripts and debugging
+MindTask is a desktop-first task manager built around a local SQLite database. It focuses on compact daily task work: fast task capture, clear tables, practical drawers, Markdown details, checklist drafting, project filtering, history rollback, and predictable settings.
+
+The desktop UI is the primary experience. CLI commands exist for scripts and debugging.
 
 MindTask is developed with assistance from Codex.
 
-## Project Layout
+## Highlights
 
-```text
-MindTask/
-  src/
-    core/      Database access and business logic
-    cli/       Command-line entry point
-    ui/        PySide6 desktop UI
-  sql/         SQLite schema
-  data/        Local SQLite database files
-  docs/        Quickstart, CLI, and desktop UI docs
-```
+- **Markdown-backed checklist editing**: checklist rows are parsed from task details, edited in a dedicated checklist area, and synchronized back to the Markdown draft.
+- **Draft-first task drawer**: task edits, checklist changes, and completion checks happen against the current draft before anything is written to the database.
+- **Scoped history rollback**: write operations are recorded and can be undone from the history drawer, including rolling back from the latest operation down to a selected history record.
+- **Config-driven local database switching**: the app can switch, create, overwrite, reload, and back up SQLite databases from the desktop Data settings page with path and schema validation.
+- **Desktop workflow over dialogs**: task creation, task editing, project management, recent task history, and global history use right-side drawers instead of a chain of modal windows.
 
-## Usage
+## Main Features
 
-Desktop UI:
+MindTask currently includes:
+
+- Task creation, editing, completion, deletion, and search
+- Markdown-rendered task details
+- Interactive checklists synchronized from Markdown
+- Due date modes: no due date, all day, and exact time
+- Project management and project filtering
+- Upcoming-due filters with overdue unfinished tasks included
+- Status and priority presentation in compact tables
+- Recent task history in the task detail drawer
+- Global operation history with undo
+- Runtime English and Chinese UI localization
+- Light, dark, and system theme modes
+- Configurable keyboard shortcuts
+- Database switching, creation, overwrite confirmation, reload, and backup
+- CLI commands for automation and debugging
+
+## Quick Start
+
+Install UI dependencies and open the desktop app:
 
 ```bash
 pip install -e .[ui]
 python MindTask_ui.py
 ```
 
-CLI:
+On first launch, MindTask creates the active config from `config/mindtask.ini.template` and opens the welcome setup flow. Choose a language, then open an existing database or create a new one.
 
-```bash
-python MindTask_cli.py --help
-python MindTask_cli.py projects
-python MindTask_cli.py project-add Work --description "Work tasks"
-python MindTask_cli.py add "Write report" --priority high --due "2026-05-15 18:00:00"
-python MindTask_cli.py list --detailed
-python MindTask_cli.py update 1 --status in_progress
-python MindTask_cli.py complete 1
-python MindTask_cli.py history
-python MindTask_cli.py undo
-python MindTask_cli.py version
-python MindTask_cli.py stats
+The default local database is `data/mindtask.db`.
+
+## Documentation
+
+- [Docs Index](docs/index.md)
+- [Getting Started](docs/getting-started.en.md) / [新手入门](docs/getting-started.zh.md)
+- [Desktop Guide](docs/desktop-guide.en.md) / [桌面端指南](docs/desktop-guide.zh.md)
+- [CLI Reference](docs/cli-reference.en.md) / [CLI 参考](docs/cli-reference.zh.md)
+- [Release Notes](docs/release-notes.en.md) / [发布记录](docs/release-notes.zh.md)
+
+## Project Structure
+
+```text
+MindTask/
+  src/
+    core/      SQLite access and business logic
+    cli/       Script/debug command interface
+    ui/        PySide6 desktop UI
+  sql/         SQLite schema
+  config/      Config template
+  docs/        User and maintenance documentation
 ```
-
-Build a Windows portable desktop package:
-
-```powershell
-.\scripts\build_windows.ps1
-```
-
-The build script creates `dist\MindTask\MindTask.exe` and a versioned zip file under `dist\`. It bundles Python, PySide6, QtAwesome, the config template, and the database schema so users can run the desktop app without installing Python.
-Dependency installation in the build script uses the Tsinghua PyPI mirror by default to avoid SSL errors on this Windows environment.
 
 ## Configuration
 
-Default settings live in `config/mindtask.ini.template`.
-MindTask creates `config/mindtask.ini` from that template the first time it runs:
+Default settings live in `config/mindtask.ini.template`. MindTask creates the active config from that template when the config file is missing. The database path comes from config and can be changed through the desktop Data settings page.
 
-```ini
-[database]
-path = data/mindtask.db
-
-[app]
-default_task_limit = 100
-default_search_limit = 20
-
-[ui]
-theme = system
-language = en
-smart_task_sorting = true
-
-[shortcuts]
-open_tasks = Ctrl+1
-open_settings = Ctrl+2
-open_projects = Ctrl+P
-new_task = Ctrl+N
-focus_search = Ctrl+F
-escape_tasks = Esc
-refresh = F5
-history = Ctrl+H
-save_task = Ctrl+S
-complete_task = Ctrl+Enter
-delete_task = Ctrl+R
-```
-
-Relative paths are resolved from the project root. Use `--config path/to/file.ini` to run with another config file. If that config file does not exist, MindTask copies it from `config/mindtask.ini.template`. If the template is missing, startup fails with an error.
-
-All-day tasks are stored as all-day values (`due_mode = all_day`) on the selected date.
-
-Desktop keyboard shortcuts are window-scoped and stored under `[shortcuts]`. They can be changed from Settings.
+Local database files and generated config files are not meant to be committed.
 
 ## Development
 
-Install in editable mode:
+Install development dependencies:
 
 ```bash
 pip install -e .[dev]
 ```
 
-Run tests when Python and pytest are available:
+Useful checks:
 
 ```bash
+python -m compileall src tests
 pytest
 ```
 
-## More Docs
+Build a Windows portable package:
 
-- `docs/index.md`
-- `docs/quickstart.md`
-- `docs/cli-reference.md`
-- `docs/desktop-ui.md`
-- `docs/iteration-log.md`
+```powershell
+.\scripts\build_windows.ps1
+```
 
-The iteration log is maintained by version. Update it immediately before creating a release commit, not after every local change.
-
-## Notes
-
-- The default database is `data/mindtask.db`.
-- Tables and views are initialized automatically from `sql/mindtask_db_schema.sql`.
-- Task status values are `0 not_started`, `1 in_progress`, `2 suspended`, and `3 completed`.
-- Write operations are recorded in `operation_history`; use `history` and `undo` to inspect and roll back the latest operation.
-- Local database files and cache folders are ignored by git.
+The build output is written under `dist\`.
+The portable app directory and zip include `README.md`, `README.zh.md`, and `docs` next to `MindTask.exe`.

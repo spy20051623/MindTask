@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
-from functools import cmp_to_key
-from math import ceil
 from typing import Any, Callable, Dict, List, Optional
 
 from PySide6.QtCore import QSize, QTimer, Qt
-from PySide6.QtGui import QAction, QColor
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QApplication,
     QAbstractItemView,
@@ -28,20 +25,23 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .constants import PRIORITY_LABELS, PRIORITY_TRANSLATION_KEYS, STATUS_LABELS, STATUS_TRANSLATION_KEYS
-from .icons import themed_icon
-from .alert_message import ALERT_DANGER, ALERT_WARN
-from .style import THEME_DARK, badge_colors_for_theme, colors_for_theme, resolve_theme
+from ..shared.constants import PRIORITY_LABELS, PRIORITY_TRANSLATION_KEYS, STATUS_LABELS, STATUS_TRANSLATION_KEYS
+from ..shared.icons import themed_icon
+from ..shared.style import badge_colors_for_theme
+from .task_due import (
+    TASK_VIEW_SEVEN_DAYS,
+    TASK_VIEW_THREE_DAYS,
+    TASK_VIEW_TODAY,
+    TASK_VIEW_TOMORROW,
+    TaskDueMixin,
+)
+from .task_sorting import TaskSortingMixin
 
 
 SIDEBAR_WIDTH = 220
-TASK_VIEW_TODAY = "__today__"
-TASK_VIEW_TOMORROW = "__tomorrow__"
-TASK_VIEW_THREE_DAYS = "__three_days__"
-TASK_VIEW_SEVEN_DAYS = "__seven_days__"
 
 
-class TaskPageMixin:
+class TaskPageMixin(TaskSortingMixin, TaskDueMixin):
     """Mixin for the task list, project filter sidebar, and task shortcuts."""
 
     def _build_tasks_page(self) -> QWidget:
@@ -426,11 +426,11 @@ class TaskPageMixin:
         self.active_search_keyword = keyword
         self.update_search_clear_action()
         if keyword:
-            tasks = self.db.search_tasks(keyword, limit=self.db.config.default_task_limit)
+            tasks = self.db.search_tasks(keyword)
             if project_id is not None:
                 tasks = [task for task in tasks if task.get("project_id") == project_id]
         else:
-            tasks = self.db.get_tasks(project_id=project_id, limit=self.db.config.default_task_limit)
+            tasks = self.db.get_tasks(project_id=project_id)
 
         if task_view is not None:
             tasks = self._filter_due_tasks(tasks, task_view)
@@ -506,106 +506,6 @@ class TaskPageMixin:
         if hasattr(self, "task_table"):
             self.task_table.horizontalHeader().setSortIndicator(self.task_sort_column, self.task_sort_order)
 
-    def _sort_tasks(self, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        if getattr(self, "smart_task_sorting", True):
-            return sorted(tasks, key=cmp_to_key(self._compare_smart_tasks))
-        return self._sort_tasks_by_selected_column(tasks)
-
-    def _sort_tasks_by_selected_column(self, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        reverse = self.task_sort_order == Qt.SortOrder.DescendingOrder
-        present = [task for task in tasks if self._task_sort_column_value(task) not in {None, ""}]
-        missing = [task for task in tasks if self._task_sort_column_value(task) in {None, ""}]
-        return sorted(present, key=self._task_sort_column_value, reverse=reverse) + sorted(
-            missing,
-            key=lambda task: task.get("id") or 0,
-        )
-
-    def _compare_smart_tasks(self, left: Dict[str, Any], right: Dict[str, Any]) -> int:
-        left_completed = self._task_completed(left)
-        right_completed = self._task_completed(right)
-        if left_completed != right_completed:
-            return 1 if left_completed else -1
-
-        if left_completed:
-            result = self._compare_values(
-                left.get("completed_at"),
-                right.get("completed_at"),
-                descending=True,
-            )
-        else:
-            result = self._compare_values(
-                self._task_due_day(left),
-                self._task_due_day(right),
-            )
-            if result == 0:
-                result = self._compare_values(
-                    left.get("priority") or 0,
-                    right.get("priority") or 0,
-                    descending=True,
-                    missing_last=False,
-                )
-
-        if result != 0:
-            return result
-
-        result = self._compare_selected_task_column(left, right)
-        if result != 0:
-            return result
-        return self._compare_values(left.get("id"), right.get("id"), missing_last=False)
-
-    def _task_completed(self, task: Dict[str, Any]) -> bool:
-        return int(task.get("status") or 0) == 3
-
-    def _task_due_day(self, task: Dict[str, Any]) -> Optional[str]:
-        due_date = task.get("due_date")
-        if not due_date:
-            return None
-        return str(due_date)[:10]
-
-    def _compare_selected_task_column(self, left: Dict[str, Any], right: Dict[str, Any]) -> int:
-        return self._compare_values(
-            self._task_sort_column_value(left),
-            self._task_sort_column_value(right),
-            descending=self.task_sort_order == Qt.SortOrder.DescendingOrder,
-        )
-
-    def _task_sort_column_value(self, task: Dict[str, Any]) -> Any:
-        if self.task_sort_column == 0:
-            return task.get("id")
-        if self.task_sort_column == 1:
-            return (task.get("title") or "").casefold()
-        if self.task_sort_column == 2:
-            return task.get("status")
-        if self.task_sort_column == 3:
-            return task.get("priority")
-        if self.task_sort_column == 4:
-            return (task.get("project_name") or "").casefold()
-        if self.task_sort_column == 5:
-            return task.get("due_date")
-        return task.get("id")
-
-    def _compare_values(
-        self,
-        left: Any,
-        right: Any,
-        *,
-        descending: bool = False,
-        missing_last: bool = True,
-    ) -> int:
-        left_missing = left in {None, ""}
-        right_missing = right in {None, ""}
-        if left_missing or right_missing:
-            if left_missing == right_missing:
-                return 0
-            if missing_last:
-                return 1 if left_missing else -1
-            return -1 if left_missing else 1
-        if left == right:
-            return 0
-        if left < right:
-            return 1 if descending else -1
-        return -1 if descending else 1
-
     def load_selected_task(self) -> None:
         if getattr(self, "_restoring_task_selection", False):
             return
@@ -671,65 +571,6 @@ class TaskPageMixin:
             selection_model.clearSelection()
             selection_model.clearCurrentIndex()
 
-    def _format_task_due(self, task: Dict[str, Any]) -> str:
-        due_date = task.get("due_date")
-        if not due_date:
-            return ""
-        if task.get("due_mode") == "all_day":
-            return f"{str(due_date)[:10]} {self.tr('all_day')}"
-        return str(due_date)
-
-    def _filter_due_tasks(self, tasks: List[Dict[str, Any]], task_view: str) -> List[Dict[str, Any]]:
-        today = date.today()
-        cutoff = self._due_filter_cutoff(today, task_view)
-        if cutoff is None:
-            return tasks
-        filtered = []
-        for task in tasks:
-            due_date = self._task_due_date(task)
-            if due_date is None:
-                continue
-            if task.get("status") == 3:
-                continue
-            if due_date <= cutoff:
-                filtered.append(task)
-        return filtered
-
-    def _due_filter_cutoff(self, today: date, task_view: str) -> Optional[date]:
-        if task_view == TASK_VIEW_TODAY:
-            return today
-        if task_view == TASK_VIEW_TOMORROW:
-            return today + timedelta(days=1)
-        if task_view == TASK_VIEW_THREE_DAYS:
-            return today + timedelta(days=3)
-        if task_view == TASK_VIEW_SEVEN_DAYS:
-            return today + timedelta(days=7)
-        return None
-
-    def _task_due_date(self, task: Dict[str, Any]) -> Optional[date]:
-        due_date = task.get("due_date")
-        if not due_date:
-            return None
-        try:
-            return datetime.strptime(str(due_date), "%Y-%m-%d %H:%M:%S").date()
-        except ValueError:
-            return None
-
-    def _is_task_overdue(self, task: Dict[str, Any]) -> bool:
-        if task.get("status") == 3:
-            return False
-        due_date = task.get("due_date")
-        if not due_date:
-            return False
-        if task.get("due_mode") == "all_day":
-            task_due_date = self._task_due_date(task)
-            return task_due_date is not None and task_due_date < date.today()
-        try:
-            task_due_at = datetime.strptime(str(due_date), "%Y-%m-%d %H:%M:%S")
-        except ValueError:
-            return False
-        return task_due_at < datetime.now()
-
     def _set_task_detail_metadata(self, task: Dict[str, Any]) -> None:
         due_alert = self._task_due_alert(task)
         if due_alert is None:
@@ -761,62 +602,6 @@ class TaskPageMixin:
             return False
         task = self.db.get_task(self.selected_task_id)
         return bool(task and task.get("status") == 3)
-
-    def _task_due_alert(self, task: Dict[str, Any]) -> Optional[tuple[int, str]]:
-        if task.get("status") == 3:
-            return None
-        due_date = task.get("due_date")
-        if not due_date:
-            return None
-        if task.get("due_mode") == "all_day":
-            task_due_date = self._task_due_date(task)
-            if task_due_date is None:
-                return None
-            days = (task_due_date - date.today()).days
-            if days < 0:
-                return ALERT_DANGER, self.tr("due_alert_overdue")
-            if days == 0:
-                return ALERT_DANGER, self.tr("due_alert_today")
-            if days <= 3:
-                return ALERT_WARN, self.tr("due_alert_days_left", days=days)
-            return None
-        try:
-            task_due_at = datetime.strptime(str(due_date), "%Y-%m-%d %H:%M:%S")
-        except ValueError:
-            return None
-        remaining = task_due_at - datetime.now()
-        if remaining.total_seconds() < 0:
-            return ALERT_DANGER, self.tr("due_alert_overdue")
-        if remaining < timedelta(hours=24):
-            total_minutes = max(1, ceil(remaining.total_seconds() / 60))
-            hours, minutes = divmod(total_minutes, 60)
-            return ALERT_DANGER, self.tr("due_alert_time_left", hours=hours, minutes=minutes)
-        task_due_date = self._task_due_date(task)
-        if task_due_date is None:
-            return None
-        days = (task_due_date - date.today()).days
-        if 1 <= days <= 3:
-            return ALERT_WARN, self.tr("due_alert_days_left", days=days)
-        return None
-
-    def _format_detail_timestamp(self, value: object) -> str:
-        if not value:
-            return ""
-        text = str(value)
-        try:
-            return datetime.strptime(text, "%Y-%m-%d %H:%M:%S").strftime("%Y-%m-%d %H:%M")
-        except ValueError:
-            return text
-
-    def _apply_overdue_cell_color(self, item: QTableWidgetItem) -> None:
-        resolved_theme = resolve_theme(self.theme, QApplication.instance())
-        colors = colors_for_theme(self.theme, QApplication.instance())
-        if resolved_theme == THEME_DARK:
-            item.setBackground(QColor("#4a2424"))
-            item.setForeground(QColor("#fee2e2"))
-        else:
-            item.setBackground(QColor("#fee2e2"))
-            item.setForeground(QColor(colors["text"]))
 
     def _select_task_view(self, value: object) -> None:
         for row in range(self.task_view_list.count()):

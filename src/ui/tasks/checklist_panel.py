@@ -9,13 +9,9 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPush
 
 from .checklist_markdown import (
     CHECKLIST_ITEM_TEXT,
-    append_checklist_item,
-    delete_checklist_item_line,
-    parse_checklist_items,
-    toggle_checklist_item_line,
-    update_checklist_item_text_line,
+    ChecklistMarkdown,
 )
-from .dialog_helpers import confirm_question
+from ..shared.dialog_helpers import confirm_question
 
 
 class ChecklistItemLabel(QLabel):
@@ -71,7 +67,7 @@ class ChecklistPanelMixin:
             if widget is not None:
                 widget.deleteLater()
 
-        items = parse_checklist_items(self.description_edit.toPlainText())
+        items = ChecklistMarkdown(self.description_edit.toPlainText()).items()
         completed = sum(1 for item in items if item.completed)
         total = len(items)
         self.checklist_progress_label.setText(self.tr("checklist_progress", completed=completed, total=total))
@@ -127,7 +123,7 @@ class ChecklistPanelMixin:
             self.checklist_items_layout.addWidget(row)
 
     def toggle_checklist_item_in_description(self, line_index: int, expected_text: str) -> None:
-        updated = toggle_checklist_item_line(self.description_edit.toPlainText(), line_index, expected_text)
+        updated = ChecklistMarkdown(self.description_edit.toPlainText()).toggle_line(line_index, expected_text)
         if updated == self.description_edit.toPlainText():
             QMessageBox.information(self, self.tr("checklist"), self.tr("checklist_item_mismatch"))
             self.refresh_checklist_from_description()
@@ -163,7 +159,7 @@ class ChecklistPanelMixin:
         editor.selectAll()
 
     def save_checklist_item_text(self, line_index: int, expected_text: str, new_text: str) -> None:
-        updated = update_checklist_item_text_line(self.description_edit.toPlainText(), line_index, expected_text, new_text)
+        updated = ChecklistMarkdown(self.description_edit.toPlainText()).update_text(line_index, expected_text, new_text)
         if updated == self.description_edit.toPlainText():
             if not self._checklist_line_matches(line_index, expected_text):
                 QMessageBox.information(self, self.tr("checklist"), self.tr("checklist_item_mismatch"))
@@ -184,7 +180,7 @@ class ChecklistPanelMixin:
         return None
 
     def _checklist_line_matches(self, line_index: int, expected_text: str) -> bool:
-        items = parse_checklist_items(self.description_edit.toPlainText())
+        items = ChecklistMarkdown(self.description_edit.toPlainText()).items()
         return any(item.line_index == line_index and item.text == expected_text for item in items)
 
     def delete_checklist_item_from_description(self, line_index: int, expected_text: str) -> None:
@@ -195,7 +191,7 @@ class ChecklistPanelMixin:
             self.translator,
         ):
             return
-        updated = delete_checklist_item_line(self.description_edit.toPlainText(), line_index, expected_text)
+        updated = ChecklistMarkdown(self.description_edit.toPlainText()).delete_line(line_index, expected_text)
         if updated == self.description_edit.toPlainText():
             QMessageBox.information(self, self.tr("checklist"), self.tr("checklist_item_mismatch"))
             self.refresh_checklist_from_description()
@@ -203,6 +199,6 @@ class ChecklistPanelMixin:
         self._set_description_draft(updated)
 
     def add_checklist_item_to_description(self) -> None:
-        updated, line_index = append_checklist_item(self.description_edit.toPlainText(), CHECKLIST_ITEM_TEXT)
+        updated, line_index = ChecklistMarkdown(self.description_edit.toPlainText()).append_item(CHECKLIST_ITEM_TEXT)
         self._set_description_draft(updated)
         self.edit_checklist_item_text(line_index, CHECKLIST_ITEM_TEXT)

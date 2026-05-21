@@ -64,7 +64,7 @@ class MindTaskCLI:
             project_id=args.project,
             status=args.status,
             priority=args.priority,
-            limit=args.limit or self.db.config.default_task_limit,
+            limit=args.limit,
         )
         if args.json:
             print(json.dumps(tasks, ensure_ascii=False, indent=2))
@@ -165,7 +165,7 @@ class MindTaskCLI:
         return 0
 
     def search(self, args: argparse.Namespace) -> int:
-        tasks = self.db.search_tasks(args.keyword, args.limit or self.db.config.default_search_limit)
+        tasks = self.db.search_tasks(args.keyword, args.limit)
         if args.json:
             print(json.dumps(tasks, ensure_ascii=False, indent=2))
         else:
@@ -330,10 +330,10 @@ def build_parser() -> argparse.ArgumentParser:
     export_parser = subparsers.add_parser("export", help="Export tasks")
     export_parser.add_argument("--format", choices=["json", "csv"], default="json")
     export_parser.add_argument("--output")
-    export_parser.add_argument("--limit", type=int, default=1000)
+    export_parser.add_argument("--limit", type=int)
 
     history_parser = subparsers.add_parser("history", help="Show operation history")
-    history_parser.add_argument("--limit", type=int, default=50)
+    history_parser.add_argument("--limit", type=int)
     history_parser.add_argument("--all", action="store_true", help="Include already undone operations")
     history_parser.add_argument("--json", action="store_true")
 
