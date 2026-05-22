@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 
 from ..shared.constants import PRIORITY_LABELS, PRIORITY_TRANSLATION_KEYS, STATUS_LABELS, STATUS_TRANSLATION_KEYS
 from ..shared.icons import themed_icon
+from ..shared.pagination_controls import PaginationControls
 from ..shared.style import badge_colors_for_theme
 from .task_due import (
     TASK_VIEW_SEVEN_DAYS,
@@ -211,6 +212,19 @@ class TaskPageMixin(TaskSortingMixin, TaskDueMixin):
         self.task_stack.addWidget(self.empty_label)
         layout.addWidget(self.task_stack, 1)
 
+        pager = QWidget()
+        pager.setObjectName("TransparentRow")
+        pager_row = QHBoxLayout(pager)
+        pager_row.setContentsMargins(0, 0, 0, 0)
+        pager_row.setSpacing(8)
+        pager_row.addStretch()
+        self.task_pagination_controls = PaginationControls(self._icon_button)
+        self.task_pagination_controls.previousRequested.connect(self.previous_task_page)
+        self.task_pagination_controls.nextRequested.connect(self.next_task_page)
+        self.task_pagination_controls.pageRequested.connect(self.jump_to_task_page)
+        pager_row.addWidget(self.task_pagination_controls)
+        layout.addWidget(pager)
+
         return panel
 
     def set_task_table_compact_mode(self, compact: bool) -> None:
@@ -228,6 +242,7 @@ class TaskPageMixin(TaskSortingMixin, TaskDueMixin):
         if self._handle_filter_change_cancelled(self.task_view_list, self._accepted_task_view, self._select_task_view):
             return
         self._accepted_task_view = current_value
+        self.task_pagination.reset()
         self.refresh_tasks(force_detail=True)
 
     def handle_project_filter_changed(self, current: Optional[QListWidgetItem], previous: Optional[QListWidgetItem]) -> None:
@@ -236,6 +251,7 @@ class TaskPageMixin(TaskSortingMixin, TaskDueMixin):
         if self._handle_filter_change_cancelled(self.project_list, self._accepted_project_filter, self._select_sidebar_project):
             return
         self._accepted_project_filter = current_value
+        self.task_pagination.reset()
         self.refresh_tasks(force_detail=True)
 
     def _handle_filter_change_cancelled(
@@ -273,6 +289,7 @@ class TaskPageMixin(TaskSortingMixin, TaskDueMixin):
         if not self.confirm_task_detail_transition():
             return
         self.search_edit.clear()
+        self.task_pagination.reset()
         self.refresh_tasks(force_detail=True)
 
     def shortcut_new_task(self) -> None:
@@ -289,6 +306,14 @@ class TaskPageMixin(TaskSortingMixin, TaskDueMixin):
         if not self._is_tasks_page():
             return
         focus_widget = QApplication.focusWidget()
+        if focus_widget is not None and focus_widget.__class__.__name__ == "PageJumpEdit":
+            parent = focus_widget.parent()
+            while parent is not None:
+                cancel_page_edit = getattr(parent, "cancel_page_edit", None)
+                if callable(cancel_page_edit):
+                    cancel_page_edit()
+                    return
+                parent = parent.parent()
         if focus_widget is not None and focus_widget.__class__.__name__ == "ChecklistItemEdit":
             self.refresh_checklist_from_description()
             return
@@ -327,6 +352,28 @@ class TaskPageMixin(TaskSortingMixin, TaskDueMixin):
     def shortcut_delete_task(self) -> None:
         if self._is_tasks_page() and self._is_task_detail_open():
             self.delete_selected_task()
+
+    def shortcut_previous_page(self) -> None:
+        if not self._is_tasks_page() or self._is_page_jump_editing():
+            return
+        if self._is_history_drawer_open():
+            self.previous_history_page()
+            return
+        if not self._is_projects_drawer_open():
+            self.previous_task_page()
+
+    def shortcut_next_page(self) -> None:
+        if not self._is_tasks_page() or self._is_page_jump_editing():
+            return
+        if self._is_history_drawer_open():
+            self.next_history_page()
+            return
+        if not self._is_projects_drawer_open():
+            self.next_task_page()
+
+    def _is_page_jump_editing(self) -> bool:
+        focus_widget = QApplication.focusWidget()
+        return bool(focus_widget is not None and focus_widget.__class__.__name__ == "PageJumpEdit")
 
     def _is_tasks_page(self) -> bool:
         return self.page_stack.currentIndex() == 0
@@ -423,6 +470,8 @@ class TaskPageMixin(TaskSortingMixin, TaskDueMixin):
         project_id = self._current_project_id()
         task_view = self._current_task_view()
         keyword = self.search_edit.text().strip()
+        if keyword != self.active_search_keyword:
+            self.task_pagination.reset()
         self.active_search_keyword = keyword
         self.update_search_clear_action()
         if keyword:
@@ -439,8 +488,9 @@ class TaskPageMixin(TaskSortingMixin, TaskDueMixin):
 
         tasks = self._sort_tasks(tasks)
         self.tasks = tasks
-        self.task_table.setRowCount(len(tasks))
-        for row, task in enumerate(tasks):
+        visible_tasks = self._task_page_items(tasks)
+        self.task_table.setRowCount(len(visible_tasks))
+        for row, task in enumerate(visible_tasks):
             values = [
                 task.get("id"),
                 task.get("title"),
@@ -472,12 +522,14 @@ class TaskPageMixin(TaskSortingMixin, TaskDueMixin):
 
         self.task_table.resizeRowsToContents()
         self.task_count_label.setText(self.tr("task_count", count=len(tasks)))
+        self._update_task_pager(len(tasks))
         self.task_stack.setCurrentWidget(self.task_table if tasks else self.empty_label)
         self.show_task_count_status()
         selected_task = None
         if self.selected_task_id is not None:
             selected_task = next((task for task in tasks if task["id"] == self.selected_task_id), None)
         if selected_task is not None:
+            self._ensure_task_visible(self.selected_task_id, tasks)
             self._select_task(self.selected_task_id)
             self._populate_task_detail(selected_task)
         else:
@@ -486,6 +538,51 @@ class TaskPageMixin(TaskSortingMixin, TaskDueMixin):
             self._clear_detail_panel()
             self.close_task_detail(clear_selection=False, force=True)
         return True
+
+    def _task_page_items(self, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return list(self.task_pagination.items(tasks))
+
+    def _ensure_task_visible(self, task_id: int, tasks: List[Dict[str, Any]]) -> None:
+        for index, task in enumerate(tasks):
+            if task.get("id") != task_id:
+                continue
+            original_page = self.task_pagination.page_index
+            self.task_pagination.set_page_for_index(index)
+            if self.task_pagination.page_index != original_page:
+                self.refresh_tasks(force_detail=True)
+            return
+
+    def _update_task_pager(self, total: int) -> None:
+        self.task_pagination.set_total(total)
+        self.task_pagination_controls.set_state(
+            self.task_pagination,
+            self.tr(
+                "page_status",
+                page=self.task_pagination.current_page,
+                pages=self.task_pagination.total_pages,
+            ),
+        )
+
+    def previous_task_page(self) -> None:
+        if not self.confirm_task_detail_transition():
+            return
+        self.close_task_detail(force=True)
+        self.task_pagination.previous()
+        self.refresh_tasks(force_detail=True)
+
+    def next_task_page(self) -> None:
+        if not self.confirm_task_detail_transition():
+            return
+        self.close_task_detail(force=True)
+        self.task_pagination.next()
+        self.refresh_tasks(force_detail=True)
+
+    def jump_to_task_page(self, page: int) -> None:
+        if not self.confirm_task_detail_transition():
+            return
+        self.close_task_detail(force=True)
+        self.task_pagination.set_current_page(page)
+        self.refresh_tasks(force_detail=True)
 
     def sort_tasks_by_column(self, column: int) -> None:
         if not self.confirm_task_detail_transition():

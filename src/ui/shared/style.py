@@ -155,6 +155,12 @@ QFrame#BottomNav {{
     border-top: 1px solid {colors["border"]};
     color: {colors["text"]};
 }}
+QWidget#TransparentRow,
+QStackedWidget#PaginationPageStack,
+QStackedWidget#PaginationPageStack QWidget {{
+    background: transparent;
+    border: none;
+}}
 QLineEdit, QTextEdit, QTextBrowser, QComboBox, QDateEdit, QListWidget, QTableWidget, QTreeWidget {{
     background: {colors["input_bg"]};
     color: {colors["text"]};
@@ -172,6 +178,16 @@ QLineEdit#SearchInput {{
     min-width: 220px;
 }}
 QLineEdit#SearchInput:focus {{
+    border: 1px solid {colors["focus_border"]};
+}}
+QLineEdit#PaginationPageEdit {{
+    min-width: 56px;
+    max-width: 56px;
+    min-height: 28px;
+    max-height: 28px;
+    padding: 0;
+}}
+QLineEdit#PaginationPageEdit:focus {{
     border: 1px solid {colors["focus_border"]};
 }}
 QLineEdit::placeholder {{

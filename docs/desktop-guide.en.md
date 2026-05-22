@@ -158,6 +158,8 @@ Default shortcuts:
 - `Ctrl+S`: Save the open task details
 - `Ctrl+Enter`: Complete the open task
 - `Ctrl+R`: Delete the open task, with confirmation
+- `Ctrl+Left`: Previous page in paged task/history lists
+- `Ctrl+Right`: Next page in paged task/history lists
 
 ## Maintenance Notes
 

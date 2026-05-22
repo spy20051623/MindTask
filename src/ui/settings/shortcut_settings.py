@@ -24,6 +24,8 @@ SHORTCUT_ACTIONS = (
     ("save_task", "shortcut_save_task"),
     ("complete_task", "shortcut_complete_task"),
     ("delete_task", "shortcut_delete_task"),
+    ("previous_page", "shortcut_previous_page"),
+    ("next_page", "shortcut_next_page"),
 )
 
 

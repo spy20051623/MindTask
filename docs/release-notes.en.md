@@ -16,6 +16,12 @@ Update it immediately before creating a release commit, not after every local ch
 
 ## Entries
 
+## 1.2.9 - 2026-05-22
+
+- Summary: Fix local timestamp handling and add safer pagination for larger task and history lists.
+- Changed: Stored new task, project, and history timestamps in local time instead of UTC; rebuilt timestamp triggers during initialization; avoided refreshing `updated_at` for no-op task/project saves; added task list pagination with 50 tasks per page and history pagination with 100 records per page; added compact shared pagination controls with page jumping, Esc/blur cancellation, and fixed sizing; added configurable `Ctrl+Left` and `Ctrl+Right` page navigation shortcuts; clarified checklist editing hints; shortened the project creation button text; and kept project management unpaged.
+- Verified: Ran Python compile checks, CLI version checks, focused timestamp smoke checks, pagination/page-jump/shortcut offscreen UI smoke checks, and PowerShell syntax checks for the Windows packaging script.
+
 ## 1.2.8 - 2026-05-21
 
 - Summary: Reorganize UI modules, refresh bilingual documentation, and prepare clearer Windows packages.

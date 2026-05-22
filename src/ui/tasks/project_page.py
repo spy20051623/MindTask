@@ -100,6 +100,7 @@ class ProjectPageMixin:
             return
         selected_id = self._selected_project_management_id()
         projects = self._sort_projects(self.db.get_project_summaries())
+        self.project_total_count = len(projects)
         self.projects_table.setRowCount(len(projects))
         for row, project in enumerate(projects):
             values = [
