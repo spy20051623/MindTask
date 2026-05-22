@@ -26,6 +26,8 @@ DEFAULT_UI_SHORTCUTS = {
     "save_task": "Ctrl+S",
     "complete_task": "Ctrl+Enter",
     "delete_task": "Ctrl+R",
+    "previous_page": "Ctrl+Left",
+    "next_page": "Ctrl+Right",
 }
 
 

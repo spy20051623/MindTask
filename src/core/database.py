@@ -23,6 +23,11 @@ DUE_MODE_EXACT_TIME = "exact_time"
 DUE_MODES = {DUE_MODE_NONE, DUE_MODE_ALL_DAY, DUE_MODE_EXACT_TIME}
 
 
+def current_timestamp() -> str:
+    """Return MindTask's local timestamp storage format."""
+    return datetime.now().strftime(DUE_DATE_FORMAT)
+
+
 class ClosingConnection(sqlite3.Connection):
     """SQLite connection that closes when leaving a with block."""
 
@@ -117,8 +122,8 @@ class MindTaskDB:
     ) -> None:
         conn.execute(
             """
-            INSERT INTO operation_history (action, entity_type, entity_id, before_json, after_json)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO operation_history (action, entity_type, entity_id, before_json, after_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 action,
@@ -126,6 +131,7 @@ class MindTaskDB:
                 entity_id,
                 json.dumps(before, ensure_ascii=False, sort_keys=True) if before is not None else None,
                 json.dumps(after, ensure_ascii=False, sort_keys=True) if after is not None else None,
+                current_timestamp(),
             ),
         )
 
@@ -212,8 +218,8 @@ class MindTaskDB:
                 due_date TIMESTAMP,
                 due_mode TEXT DEFAULT 'none' CHECK (due_mode IN ('none', 'all_day', 'exact_time')),
                 completed_at TIMESTAMP,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMP DEFAULT (datetime('now', 'localtime')),
+                updated_at TIMESTAMP DEFAULT (datetime('now', 'localtime')),
                 FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE SET NULL
             );
 
@@ -243,9 +249,13 @@ class MindTaskDB:
         if not name:
             raise ValueError("Project name is required.")
         with self._connect() as conn:
+            now = current_timestamp()
             cursor = conn.execute(
-                "INSERT INTO projects (name, description, color) VALUES (?, ?, ?)",
-                (name, description, color),
+                """
+                INSERT INTO projects (name, description, color, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (name, description, color, now, now),
             )
             project_id = int(cursor.lastrowid)
             self._record_history(conn, "create", "project", project_id, None, self._project_snapshot(conn, project_id))
@@ -299,12 +309,26 @@ class MindTaskDB:
         if not fields:
             return False
 
-        values.append(project_id)
         with self._connect() as conn:
             before = self._project_snapshot(conn, project_id)
+            if not before:
+                return False
+            project_before = before["project"]
+            filtered_fields = []
+            filtered_values = []
+            for field, value in zip(fields, values):
+                key = field.split(" = ", 1)[0]
+                if project_before.get(key) != value:
+                    filtered_fields.append(field)
+                    filtered_values.append(value)
+            if not filtered_fields:
+                return True
+            filtered_fields.append("updated_at = ?")
+            filtered_values.append(current_timestamp())
+            filtered_values.append(project_id)
             cursor = conn.execute(
-                f"UPDATE projects SET {', '.join(fields)} WHERE id = ?",
-                values,
+                f"UPDATE projects SET {', '.join(filtered_fields)} WHERE id = ?",
+                filtered_values,
             )
             changed = cursor.rowcount > 0
             if changed:
@@ -364,12 +388,17 @@ class MindTaskDB:
     ) -> int:
         due_date, due_mode = normalize_task_due(due_date, due_mode)
         with self._connect() as conn:
+            now = current_timestamp()
+            completed_at = now if int(status) == STATUS_COMPLETED else None
             cursor = conn.execute(
                 """
-                INSERT INTO tasks (title, description, project_id, priority, status, due_date, due_mode)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO tasks (
+                    title, description, project_id, priority, status,
+                    due_date, due_mode, completed_at, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (title, description, project_id, priority, status, due_date, due_mode),
+                (title, description, project_id, priority, status, due_date, due_mode, completed_at, now, now),
             )
             task_id = int(cursor.lastrowid)
             self._record_history(conn, "create", "task", task_id, None, self._task_snapshot(conn, task_id))
@@ -411,38 +440,49 @@ class MindTaskDB:
 
     def update_task(self, task_id: int, **kwargs: Any) -> bool:
         allowed = {"title", "description", "project_id", "priority", "status"}
-        fields = []
-        values = []
+        updates: Dict[str, Any] = {}
 
         if "due_date" in kwargs or "due_mode" in kwargs:
             due_date, due_mode = normalize_task_due(kwargs.get("due_date"), kwargs.get("due_mode"))
-            fields.append("due_date = ?")
-            fields.append("due_mode = ?")
-            values.append(due_date)
-            values.append(due_mode)
+            updates["due_date"] = due_date
+            updates["due_mode"] = due_mode
 
         for key, value in kwargs.items():
             if key == "status":
                 status = int(value)
-                fields.append("status = ?")
-                fields.append("completed_at = ?")
-                values.append(status)
-                values.append(datetime.now().strftime("%Y-%m-%d %H:%M:%S") if status == STATUS_COMPLETED else None)
+                updates["status"] = status
             elif key in allowed:
-                fields.append(f"{key} = ?")
-                values.append(value)
+                updates[key] = value
             elif key == "completed":
-                fields.append("status = ?")
-                fields.append("completed_at = ?")
-                values.append(STATUS_COMPLETED if value else STATUS_NOT_STARTED)
-                values.append(datetime.now().strftime("%Y-%m-%d %H:%M:%S") if value else None)
+                updates["status"] = STATUS_COMPLETED if value else STATUS_NOT_STARTED
 
-        if not fields:
+        if not updates:
             return False
 
-        values.append(task_id)
         with self._connect() as conn:
             before = self._task_snapshot(conn, task_id)
+            if not before:
+                return False
+            task_before = before["task"]
+            if "status" in updates:
+                previous_status = int(task_before.get("status") or STATUS_NOT_STARTED)
+                next_status = int(updates["status"])
+                if next_status == STATUS_COMPLETED and previous_status != STATUS_COMPLETED:
+                    updates["completed_at"] = current_timestamp()
+                elif next_status != STATUS_COMPLETED:
+                    updates["completed_at"] = None
+
+            changed_updates = {
+                key: value
+                for key, value in updates.items()
+                if task_before.get(key) != value
+            }
+            if not changed_updates:
+                return True
+            changed_updates["updated_at"] = current_timestamp()
+            fields = [f"{key} = ?" for key in changed_updates]
+            values = list(changed_updates.values())
+            values.append(task_id)
             cursor = conn.execute(
                 f"UPDATE tasks SET {', '.join(fields)} WHERE id = ?",
                 values,
@@ -634,8 +674,8 @@ class MindTaskDB:
             raise ValueError(f"Unsupported history entity type: {entity_type}")
 
         conn.execute(
-            "UPDATE operation_history SET undone_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (history["id"],),
+            "UPDATE operation_history SET undone_at = ? WHERE id = ?",
+            (current_timestamp(), history["id"]),
         )
 
 def example_usage() -> None:

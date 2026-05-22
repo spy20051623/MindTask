@@ -13,11 +13,13 @@ class StatusBarMixin:
 
     def show_project_count_status(self) -> None:
         if hasattr(self, "projects_table"):
-            self.statusBar().showMessage(self.tr("project_status_count", count=self.projects_table.rowCount()))
+            count = getattr(self, "project_total_count", self.projects_table.rowCount())
+            self.statusBar().showMessage(self.tr("project_status_count", count=count))
 
     def show_history_count_status(self) -> None:
         if hasattr(self, "history_drawer_table"):
-            self.statusBar().showMessage(self.tr("history_status_count", count=self.history_drawer_table.rowCount()))
+            count = len(getattr(self, "history_rows", [])) or self.history_drawer_table.rowCount()
+            self.statusBar().showMessage(self.tr("history_status_count", count=count))
 
     def show_task_count_status(self) -> None:
         if (

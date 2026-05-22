@@ -56,6 +56,8 @@ from .shared.dialog_helpers import confirm_question, required_label
 from .tasks.due_date_editor import DueDateEditor
 from .shared.icons import icon_button, set_action_button_icon, themed_icon
 from .shared.i18n import Translator
+from .shared.pagination import PaginationState
+from .shared.pagination_controls import PaginationControls
 from .tasks.markdown import render_markdown_html
 from .tasks.project_page import ProjectPageMixin
 from .settings.settings_page import SettingsPageMixin
@@ -72,6 +74,7 @@ DETAIL_LABEL_WIDTH = 114
 DETAIL_SECTION_WIDTH = DETAIL_PANEL_WIDTH - 28
 DETAIL_ANIMATION_DURATION_MS = 240
 SIDEBAR_WIDTH = 220
+HISTORY_PAGE_SIZE = 100
 
 
 class NoWheelComboBox(QComboBox):
@@ -111,6 +114,9 @@ class MindTaskWindow(
         self.task_sort_order = Qt.SortOrder.AscendingOrder
         self.project_sort_column = 0
         self.project_sort_order = Qt.SortOrder.AscendingOrder
+        self.task_pagination = PaginationState(page_size=50)
+        self.history_pagination = PaginationState(page_size=HISTORY_PAGE_SIZE)
+        self.history_rows: List[Dict[str, Any]] = []
         self.active_search_keyword = ""
         self._detail_original_values: Dict[str, object] = {}
         self.detail_mode = "closed"
@@ -174,6 +180,8 @@ class MindTaskWindow(
             "save_task": self.shortcut_save_task,
             "complete_task": self.shortcut_complete_task,
             "delete_task": self.shortcut_delete_task,
+            "previous_page": self.shortcut_previous_page,
+            "next_page": self.shortcut_next_page,
         }
         if hasattr(self, "shortcuts"):
             for shortcut in self.shortcuts:
@@ -576,10 +584,15 @@ class MindTaskWindow(
         self.history_undo_to_selected_button.setObjectName("DangerButton")
         self.history_undo_to_selected_button.clicked.connect(self.undo_to_selected_from_history_drawer)
         self.history_undo_warning_label = AlertMessage()
+        self.history_pagination_controls = PaginationControls(self._icon_button)
+        self.history_pagination_controls.previousRequested.connect(self.previous_history_page)
+        self.history_pagination_controls.nextRequested.connect(self.next_history_page)
+        self.history_pagination_controls.pageRequested.connect(self.jump_to_history_page)
         button_row.addWidget(self.history_undo_latest_button)
         button_row.addWidget(self.history_undo_to_selected_button)
         button_row.addWidget(self.history_undo_warning_label)
         button_row.addStretch()
+        button_row.addWidget(self.history_pagination_controls)
         layout.addLayout(button_row)
         return panel
 
@@ -656,6 +669,11 @@ class MindTaskWindow(
         self.history_drawer_table.setHorizontalHeaderLabels(
             ["ID", self.tr("created"), self.tr("action"), self.tr("entity"), self.tr("state"), self.tr("undone")]
         )
+        self.history_pagination_controls.set_tooltips(
+            self.tr("previous_page"),
+            self.tr("next_page"),
+            self.tr("page_jump"),
+        )
         self.history_undo_latest_button.setText(self.tr("undo_latest"))
         self.history_undo_to_selected_button.setText(self.tr("undo_to_selected"))
         self.history_undo_warning_label.set_message(self.tr("undo_warning"), ALERT_WARN)
@@ -668,6 +686,11 @@ class MindTaskWindow(
         self.delete_project_button.setText(self.tr("delete"))
         self.projects_table.setHorizontalHeaderLabels(
             ["ID", self.tr("name"), self.tr("tasks"), self.tr("active"), self.tr("completed")]
+        )
+        self.task_pagination_controls.set_tooltips(
+            self.tr("previous_page"),
+            self.tr("next_page"),
+            self.tr("page_jump"),
         )
         self._update_project_sort_indicator()
 
@@ -1267,9 +1290,11 @@ class MindTaskWindow(
         self.open_history_drawer()
 
     def refresh_history_drawer(self) -> None:
-        rows = self.db.get_history(limit=100, include_undone=True)
-        self.history_drawer_table.setRowCount(len(rows))
-        for row_index, history in enumerate(rows):
+        rows = self.db.get_history(include_undone=True)
+        self.history_rows = rows
+        visible_rows = self._history_page_items(rows)
+        self.history_drawer_table.setRowCount(len(visible_rows))
+        for row_index, history in enumerate(visible_rows):
             entity_id = f"#{history['entity_id']}" if history.get("entity_id") is not None else ""
             action = history["action"]
             entity_type = history["entity_type"]
@@ -1297,10 +1322,40 @@ class MindTaskWindow(
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 self.history_drawer_table.setItem(row_index, column, item)
         self.history_drawer_table.resizeRowsToContents()
+        self._update_history_pager(len(rows))
         self.history_undo_latest_button.setEnabled(any(not row.get("undone_at") for row in rows))
-        self.history_undo_to_selected_button.setEnabled(bool(rows))
+        self.history_undo_to_selected_button.setEnabled(bool(visible_rows))
         if self._is_history_drawer_open():
             self.show_history_count_status()
+
+    def _history_page_items(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return list(self.history_pagination.items(rows))
+
+    def _update_history_pager(self, total: int) -> None:
+        self.history_pagination.set_total(total)
+        self.history_pagination_controls.set_state(
+            self.history_pagination,
+            self.tr(
+                "page_status",
+                page=self.history_pagination.current_page,
+                pages=self.history_pagination.total_pages,
+            ),
+        )
+
+    def previous_history_page(self) -> None:
+        self.history_drawer_table.clearSelection()
+        self.history_pagination.previous()
+        self.refresh_history_drawer()
+
+    def next_history_page(self) -> None:
+        self.history_drawer_table.clearSelection()
+        self.history_pagination.next()
+        self.refresh_history_drawer()
+
+    def jump_to_history_page(self, page: int) -> None:
+        self.history_drawer_table.clearSelection()
+        self.history_pagination.set_current_page(page)
+        self.refresh_history_drawer()
 
     def undo_latest_from_history_drawer(self) -> None:
         if not confirm_question(
@@ -1358,7 +1413,7 @@ class MindTaskWindow(
         history_id = self._selected_history_drawer_id()
         if history_id is None:
             return None
-        for row in self.db.get_history(limit=100, include_undone=True):
+        for row in self.history_rows or self.db.get_history(include_undone=True):
             if row["id"] == history_id:
                 return row
         return None

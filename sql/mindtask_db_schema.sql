@@ -3,8 +3,8 @@ CREATE TABLE IF NOT EXISTS projects (
     name TEXT NOT NULL UNIQUE,
     description TEXT DEFAULT '',
     color TEXT DEFAULT '#007BFF',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT (datetime('now', 'localtime')),
+    updated_at TIMESTAMP DEFAULT (datetime('now', 'localtime'))
 );
 
 CREATE TABLE IF NOT EXISTS tasks (
@@ -17,8 +17,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     due_date TIMESTAMP,
     due_mode TEXT DEFAULT 'none' CHECK (due_mode IN ('none', 'all_day', 'exact_time')),
     completed_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT (datetime('now', 'localtime')),
+    updated_at TIMESTAMP DEFAULT (datetime('now', 'localtime')),
     FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE SET NULL
 );
 
@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS operation_history (
     before_json TEXT,
     after_json TEXT,
     undone_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT (datetime('now', 'localtime'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks(project_id);
@@ -41,16 +41,19 @@ CREATE INDEX IF NOT EXISTS idx_tasks_project_status ON tasks(project_id, status)
 CREATE INDEX IF NOT EXISTS idx_operation_history_created_at ON operation_history(created_at);
 CREATE INDEX IF NOT EXISTS idx_operation_history_undone_at ON operation_history(undone_at);
 
-CREATE TRIGGER IF NOT EXISTS update_projects_timestamp
+DROP TRIGGER IF EXISTS update_projects_timestamp;
+DROP TRIGGER IF EXISTS update_tasks_timestamp;
+
+CREATE TRIGGER update_projects_timestamp
 AFTER UPDATE ON projects
 BEGIN
-    UPDATE projects SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+    UPDATE projects SET updated_at = datetime('now', 'localtime') WHERE id = NEW.id;
 END;
 
-CREATE TRIGGER IF NOT EXISTS update_tasks_timestamp
+CREATE TRIGGER update_tasks_timestamp
 AFTER UPDATE ON tasks
 BEGIN
-    UPDATE tasks SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+    UPDATE tasks SET updated_at = datetime('now', 'localtime') WHERE id = NEW.id;
 END;
 
 DROP VIEW IF EXISTS task_details;

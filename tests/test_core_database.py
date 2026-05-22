@@ -1,3 +1,6 @@
+from datetime import datetime
+import time
+
 from src.core import MindTaskDB
 from src.core.config import ensure_config_exists, load_config, save_hide_completed_tasks
 import pytest
@@ -75,6 +78,30 @@ def test_task_list_and_search_are_unlimited_by_default(tmp_path):
     assert len(db.search_tasks("Bulk")) == 25
     assert len(db.get_tasks(limit=5)) == 5
     assert len(db.search_tasks("Bulk", limit=5)) == 5
+
+
+def test_task_timestamps_use_local_time_and_ignore_noop_updates(tmp_path):
+    db = MindTaskDB(config_path=write_config(tmp_path))
+
+    before_create = datetime.now()
+    task_id = db.create_task("Timestamp task")
+    created = db.get_task(task_id)
+    created_at = datetime.strptime(created["created_at"], "%Y-%m-%d %H:%M:%S")
+    updated_at = datetime.strptime(created["updated_at"], "%Y-%m-%d %H:%M:%S")
+
+    assert abs((created_at - before_create).total_seconds()) < 5
+    assert abs((updated_at - before_create).total_seconds()) < 5
+
+    assert db.update_task(task_id, title="Timestamp task")
+    noop_updated_at = db.get_task(task_id)["updated_at"]
+    assert noop_updated_at == created["updated_at"]
+
+    time.sleep(1.1)
+    assert db.update_task(task_id, title="Timestamp task updated")
+    changed = db.get_task(task_id)
+    assert changed["updated_at"] != noop_updated_at
+    changed_updated_at = datetime.strptime(changed["updated_at"], "%Y-%m-%d %H:%M:%S")
+    assert abs((changed_updated_at - datetime.now()).total_seconds()) < 5
 
 
 def test_database_initialization_does_not_seed_projects(tmp_path):
