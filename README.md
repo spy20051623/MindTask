@@ -44,7 +44,7 @@ pip install -e .[ui]
 python MindTask_ui.py
 ```
 
-On first launch, MindTask creates the active config from `config/mindtask.ini.template` and opens the welcome setup flow. Choose a language, then open an existing database or create a new one.
+On first launch, MindTask looks for `config/mindtask.ini` next to the app first, then the user config at `%APPDATA%\MindTask\mindtask.ini`. If neither exists, the welcome setup flow opens. Choose a language, choose where to create the config file, then open an existing database or create a new one.
 
 The default local database is `data/mindtask.db`.
 
@@ -71,7 +71,7 @@ MindTask/
 
 ## Configuration
 
-Default settings live in `config/mindtask.ini.template`. MindTask creates the active config from that template when the config file is missing. The database path comes from config and can be changed through the desktop Data settings page.
+Default settings live in `config/mindtask.ini.template`. MindTask uses a local `config/mindtask.ini` when present; otherwise it uses `%APPDATA%\MindTask\mindtask.ini`. The database path comes from config and can be changed through the desktop Data settings page.
 
 Local database files and generated config files are not meant to be committed.
 

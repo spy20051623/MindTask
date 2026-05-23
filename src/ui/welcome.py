@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QComboBox,
     QDialog,
     QFileDialog,
@@ -21,7 +22,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..core import get_config_path, load_config, save_database_path, save_ui_language
+from ..core import (
+    create_config_from_template,
+    get_default_database_path,
+    get_local_config_path,
+    get_user_config_path,
+    save_database_path,
+    save_ui_language,
+)
 from .settings.database_file_service import (
     DatabaseFileService,
     DatabasePathError,
@@ -36,10 +44,11 @@ class WelcomeDialog(QDialog):
 
     def __init__(self, config_path: Optional[str] = None, parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self.config_path = str(get_config_path(config_path))
-        self.config = load_config(config_path)
-        self.language = self.config.ui_language
+        self.config_path = str(Path(config_path) if config_path else get_user_config_path())
+        self.language = "en"
         self.translator = Translator(self.language)
+        self._system_database_path = str(get_default_database_path())
+        self._local_database_path = str(get_local_config_path().parent / "mindtask.db")
 
         self.setMinimumWidth(560)
         self.setWindowTitle(self.tr("welcome_title"))
@@ -112,13 +121,27 @@ class WelcomeDialog(QDialog):
         self.database_title.setObjectName("SectionLabel")
         self.database_intro = QLabel()
         self.database_intro.setWordWrap(True)
+        self.config_location_title = QLabel()
+        self.config_location_title.setObjectName("FieldLabel")
+        self.system_config_radio = QRadioButton()
+        self.local_config_radio = QRadioButton()
+        self.config_location_group = QButtonGroup(self)
+        self.config_location_group.addButton(self.system_config_radio)
+        self.config_location_group.addButton(self.local_config_radio)
+        self.system_config_radio.setChecked(True)
+        self.system_config_radio.toggled.connect(self.change_config_location)
+        self.database_mode_title = QLabel()
+        self.database_mode_title.setObjectName("FieldLabel")
 
         self.existing_radio = QRadioButton()
         self.new_radio = QRadioButton()
+        self.database_mode_group = QButtonGroup(self)
+        self.database_mode_group.addButton(self.new_radio)
+        self.database_mode_group.addButton(self.existing_radio)
         self.new_radio.setChecked(True)
 
-        self.database_path_edit = QLineEdit(self.config.database_path)
-        self.database_path_edit.setPlaceholderText("data/mindtask.db")
+        self.database_path_edit = QLineEdit(self._system_database_path)
+        self.database_path_edit.setPlaceholderText(self._system_database_path)
         self.browse_button = QPushButton()
         self.browse_button.clicked.connect(self.browse_database_path)
 
@@ -128,6 +151,11 @@ class WelcomeDialog(QDialog):
 
         layout.addWidget(self.database_title)
         layout.addWidget(self.database_intro)
+        layout.addWidget(self.config_location_title)
+        layout.addWidget(self.system_config_radio)
+        layout.addWidget(self.local_config_radio)
+        layout.addSpacing(8)
+        layout.addWidget(self.database_mode_title)
         layout.addWidget(self.new_radio)
         layout.addWidget(self.existing_radio)
         layout.addLayout(path_row)
@@ -148,6 +176,10 @@ class WelcomeDialog(QDialog):
         self.language_intro.setText(self.tr("welcome_language_intro"))
         self.database_title.setText(self.tr("database"))
         self.database_intro.setText(self.tr("welcome_database_intro"))
+        self.config_location_title.setText(self.tr("config_location"))
+        self.system_config_radio.setText(self.tr("system_config_recommended"))
+        self.local_config_radio.setText(self.tr("local_config"))
+        self.database_mode_title.setText(self.tr("database_mode"))
         self.existing_radio.setText(self.tr("use_existing_database"))
         self.new_radio.setText(self.tr("create_new_database"))
         self.browse_button.setText(self.tr("browse"))
@@ -173,7 +205,7 @@ class WelcomeDialog(QDialog):
         self.finish_setup()
 
     def browse_database_path(self) -> None:
-        current = self.database_path_edit.text().strip() or self.config.database_path
+        current = self.database_path_edit.text().strip() or self._default_database_path()
         if self.existing_radio.isChecked():
             path, _ = QFileDialog.getOpenFileName(self, self.tr("use_existing_database"), str(Path(current).parent), "SQLite (*.db *.sqlite *.sqlite3);;All files (*)")
         else:
@@ -182,6 +214,7 @@ class WelcomeDialog(QDialog):
             self.database_path_edit.setText(path)
 
     def finish_setup(self) -> None:
+        self.config_path = str(self._selected_config_path())
         database_path = self.database_path_edit.text().strip()
         if not database_path:
             key = "existing_database_required" if self.existing_radio.isChecked() else "new_database_required"
@@ -189,6 +222,7 @@ class WelcomeDialog(QDialog):
             return
 
         try:
+            Path(self.config_path).parent.mkdir(parents=True, exist_ok=True)
             if self.existing_radio.isChecked():
                 existing_db = self._database_file_service().open_existing_database(database_path)
                 target = Path(existing_db.db_path)
@@ -196,6 +230,9 @@ class WelcomeDialog(QDialog):
                 target = self._database_file_service().inspect_new_database_target(database_path)
         except DatabasePathError as exc:
             QMessageBox.warning(self, self.tr("database"), self.tr(exc.key, **exc.kwargs))
+            return
+        except OSError as exc:
+            QMessageBox.warning(self, self.tr("database"), str(exc))
             return
 
         if self.new_radio.isChecked() and target.exists:
@@ -208,6 +245,7 @@ class WelcomeDialog(QDialog):
                 return
 
         try:
+            create_config_from_template(self.config_path)
             save_ui_language(self.language, self.config_path)
             if self.new_radio.isChecked():
                 new_db = self._database_file_service().create_database(str(target.path), overwrite=target.exists)
@@ -225,3 +263,17 @@ class WelcomeDialog(QDialog):
 
     def _database_file_service(self) -> DatabaseFileService:
         return DatabaseFileService(self.config_path, language=self.language)
+
+    def change_config_location(self) -> None:
+        old_default = self._local_database_path if self.system_config_radio.isChecked() else self._system_database_path
+        new_default = self._default_database_path()
+        current = self.database_path_edit.text().strip()
+        if not current or current == old_default:
+            self.database_path_edit.setText(new_default)
+        self.database_path_edit.setPlaceholderText(new_default)
+
+    def _selected_config_path(self) -> Path:
+        return get_user_config_path() if self.system_config_radio.isChecked() else get_local_config_path()
+
+    def _default_database_path(self) -> str:
+        return self._system_database_path if self.system_config_radio.isChecked() else self._local_database_path

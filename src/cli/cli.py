@@ -11,7 +11,7 @@ import sys
 from typing import Any, Dict, List, Optional
 
 from .. import __version__
-from ..core import MindTaskDB, normalize_due_date
+from ..core import DatabaseInvalidError, DatabaseMissingError, MindTaskDB, find_config_path, normalize_due_date
 
 
 PRIORITY_NAMES = {0: "None", 1: "Low", 2: "Medium", 3: "High"}
@@ -349,8 +349,26 @@ def main() -> int:
     if not args.command:
         parser.print_help()
         return 1
+    if args.command == "version":
+        print(__version__)
+        return 0
 
-    cli = MindTaskCLI(args.config)
+    config_path = find_config_path(args.config)
+    if config_path is None:
+        if args.config:
+            print(f"Error: Config file was not found: {args.config}", file=sys.stderr)
+        else:
+            print("Error: Config file was not found. Start MindTask UI to set it up first, or pass --config.", file=sys.stderr)
+        return 1
+
+    try:
+        cli = MindTaskCLI(str(config_path))
+    except DatabaseMissingError as exc:
+        print(f"Error: Database file was not found: {exc}", file=sys.stderr)
+        return 1
+    except DatabaseInvalidError as exc:
+        print(f"Error: Database file is not usable: {exc}", file=sys.stderr)
+        return 1
     handlers = {
         "list": cli.list_tasks,
         "projects": cli.list_projects,
@@ -365,7 +383,6 @@ def main() -> int:
         "export": cli.export_tasks,
         "history": cli.history,
         "undo": cli.undo,
-        "version": cli.version,
     }
 
     try:

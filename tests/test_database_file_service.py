@@ -93,7 +93,7 @@ def test_inspect_and_create_database_handle_existing_targets(tmp_path):
 
 def test_backup_database_copies_valid_database(tmp_path):
     config_path = write_config(tmp_path)
-    source_db = MindTaskDB(config_path=str(config_path))
+    source_db = MindTaskDB(config_path=str(config_path), create_if_missing=True)
     task_id = source_db.create_task("Backup me")
     service = DatabaseFileService(str(config_path))
     backup_path = tmp_path / "backup.sqlite"
@@ -102,5 +102,5 @@ def test_backup_database_copies_valid_database(tmp_path):
     assert copied_path == backup_path
 
     backup_config_path = write_config(tmp_path / "backup-config", db_path=backup_path)
-    backup_db = MindTaskDB(config_path=str(backup_config_path))
+    backup_db = MindTaskDB(config_path=str(backup_config_path), create_if_missing=False)
     assert backup_db.get_task(task_id)["title"] == "Backup me"

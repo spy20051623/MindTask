@@ -30,6 +30,10 @@ python MindTask_cli.py --config config/dev.ini list
 
 数据库路径从当前配置文件读取。CLI 不提供直接传入数据库路径的选项。
 
+未传入 `--config` 时，CLI 会先查找本地 `config/mindtask.ini`，再查找 `%APPDATA%\MindTask\mindtask.ini`。如果没有任何配置文件，CLI 只会报错，不会自动创建配置。请先启动桌面端完成首次设置。
+
+如果当前配置指向的数据库文件不存在或不可用，CLI 会报错，不会创建数据库。
+
 ## 常用取值
 
 优先级取值：

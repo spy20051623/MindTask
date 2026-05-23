@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from ...core import MindTaskDB
-from ...core.config import load_config
+from ...core.config import DEFAULT_UI_SHORTCUTS, MindTaskConfig, get_default_database_path, load_config
 
 
 SQLITE_HEADER = b"SQLite format 3\x00"
@@ -60,7 +60,7 @@ class DatabaseFileService:
 
     def open_existing_database(self, path_text: str) -> MindTaskDB:
         path = self._validate_existing_database_path(path_text)
-        db = self._open_database_from_path(path)
+        db = self._open_database_from_path(path, create_if_missing=False)
         db.get_tasks(limit=1)
         return db
 
@@ -75,7 +75,7 @@ class DatabaseFileService:
         try:
             if path.exists():
                 path.unlink()
-            db = self._open_database_from_path(path)
+            db = self._open_database_from_path(path, create_if_missing=True)
             if with_sample_data:
                 db.create_sample_data()
             db.get_tasks(limit=1)
@@ -99,8 +99,15 @@ class DatabaseFileService:
             raise DatabasePathError("could_not_backup_database", error=exc) from exc
         return target
 
-    def _open_database_from_path(self, database_path: Path) -> MindTaskDB:
-        config = load_config(self.config_path)
+    def _open_database_from_path(self, database_path: Path, create_if_missing: bool) -> MindTaskDB:
+        if Path(self.config_path).exists():
+            config = load_config(self.config_path)
+        else:
+            config = MindTaskConfig(
+                database_path=str(get_default_database_path()),
+                schema_path="",
+                ui_shortcuts=dict(DEFAULT_UI_SHORTCUTS),
+            )
         with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".ini", delete=False) as fh:
             temp_config_path = fh.name
             fh.write("[database]\n")
@@ -111,7 +118,7 @@ class DatabaseFileService:
             fh.write(f"smart_task_sorting = {'true' if config.smart_task_sorting else 'false'}\n")
             fh.write(f"hide_completed_tasks = {'true' if config.hide_completed_tasks else 'false'}\n")
         try:
-            return MindTaskDB(config_path=temp_config_path)
+            return MindTaskDB(config_path=temp_config_path, create_if_missing=create_if_missing)
         finally:
             Path(temp_config_path).unlink(missing_ok=True)
 

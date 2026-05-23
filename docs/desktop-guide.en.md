@@ -18,13 +18,9 @@ Start the desktop app:
 python MindTask_ui.py
 ```
 
-Use a custom config file:
+The desktop UI chooses config files in this order: local `config/mindtask.ini` next to the app, then `%APPDATA%\MindTask\mindtask.ini`. On first launch, if neither config exists, MindTask opens a welcome setup window. The setup flow asks for a language, where to create the config file, and then whether to open an existing database or create a new one. The main window opens only after setup is complete. If the template is missing, startup fails with a clear error.
 
-```bash
-python MindTask_ui.py --config path/to/mindtask.ini
-```
-
-On first launch, if the active config file does not exist, MindTask copies `config/mindtask.ini.template` to that location and opens a welcome setup window. The setup flow asks for a language and then asks the user to open an existing database or create a new one. The main window opens only after setup is complete. If the template is missing, startup fails with a clear error.
+If the active config exists but its database file is missing or unusable, MindTask does not create a new database silently. It opens a database selection window where the user can choose an existing database or explicitly create a new one.
 
 ## Layout
 

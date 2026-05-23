@@ -175,6 +175,8 @@ class ProjectPageMixin:
             QMessageBox.warning(self, self.tr("invalid_project"), str(exc))
             return
         except Exception as exc:
+            if self.handle_unavailable_database_if_needed(exc):
+                return
             QMessageBox.warning(self, self.tr("project"), self.tr("project_create_failed", error=exc))
             return
         self.refresh_all()
@@ -203,6 +205,8 @@ class ProjectPageMixin:
             QMessageBox.warning(self, self.tr("invalid_project"), str(exc))
             return
         except Exception as exc:
+            if self.handle_unavailable_database_if_needed(exc):
+                return
             QMessageBox.warning(self, self.tr("project"), self.tr("project_rename_failed", error=exc))
             return
         if not changed:
@@ -235,6 +239,8 @@ class ProjectPageMixin:
             QMessageBox.warning(self, self.tr("delete_project"), str(exc))
             return
         except Exception as exc:
+            if self.handle_unavailable_database_if_needed(exc):
+                return
             QMessageBox.warning(self, self.tr("project"), self.tr("project_delete_failed", error=exc))
             return
         if not deleted:

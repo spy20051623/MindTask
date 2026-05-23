@@ -5,15 +5,16 @@ from __future__ import annotations
 import configparser
 import os
 import shutil
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Optional
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "mindtask.ini"
 DEFAULT_CONFIG_TEMPLATE_PATH = PROJECT_ROOT / "config" / "mindtask.ini.template"
 DEFAULT_SCHEMA_PATH = PROJECT_ROOT / "sql" / "mindtask_db_schema.sql"
+APP_NAME = "MindTask"
 DEFAULT_UI_SHORTCUTS = {
     "open_tasks": "Ctrl+1",
     "open_settings": "Ctrl+2",
@@ -45,8 +46,44 @@ class MindTaskConfig:
 def resolve_project_path(value: str) -> str:
     path = Path(os.path.expandvars(os.path.expanduser(value)))
     if not path.is_absolute():
-        path = PROJECT_ROOT / path
+        path = get_application_root() / path
     return str(path)
+
+
+def get_application_root() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return PROJECT_ROOT
+
+
+def get_local_config_path() -> Path:
+    return get_application_root() / "config" / "mindtask.ini"
+
+
+def get_user_config_dir() -> Path:
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        return Path(appdata) / APP_NAME
+    return Path.home() / ".mindtask"
+
+
+def get_user_config_path() -> Path:
+    return get_user_config_dir() / "mindtask.ini"
+
+
+def get_default_database_path() -> Path:
+    return get_user_config_dir() / "mindtask.db"
+
+
+def find_config_path(config_path: Optional[str] = None) -> Optional[Path]:
+    if config_path:
+        path = Path(config_path)
+        return path if path.exists() else None
+
+    for path in (get_local_config_path(), get_user_config_path()):
+        if path.exists():
+            return path
+    return None
 
 
 def load_config(config_path: Optional[str] = None) -> MindTaskConfig:
@@ -117,7 +154,9 @@ def _write_config(path: Path, parser: configparser.ConfigParser) -> None:
 
 
 def get_config_path(config_path: Optional[str] = None) -> Path:
-    return Path(config_path) if config_path else DEFAULT_CONFIG_PATH
+    if config_path:
+        return Path(config_path)
+    return find_config_path() or get_user_config_path()
 
 
 def get_config_template_path() -> Path:
@@ -125,7 +164,7 @@ def get_config_template_path() -> Path:
 
 
 def config_exists(config_path: Optional[str] = None) -> bool:
-    return get_config_path(config_path).exists()
+    return find_config_path(config_path) is not None
 
 
 def ensure_config_exists(config_path: Optional[str] = None) -> Path:
@@ -137,8 +176,28 @@ def ensure_config_exists(config_path: Optional[str] = None) -> Path:
     if not template_path.exists():
         raise FileNotFoundError(f"Config file is missing and template was not found: {template_path}")
 
+    create_config_from_template(path)
+    return path
+
+
+def create_config_from_template(config_path: str | Path) -> Path:
+    path = Path(config_path)
+    if path.exists():
+        return path
+    template_path = get_config_template_path()
+    if not template_path.exists():
+        raise FileNotFoundError(f"Config file is missing and template was not found: {template_path}")
+
     path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(template_path, path)
+
+    if path == get_user_config_path():
+        parser = configparser.ConfigParser()
+        parser.read(path, encoding="utf-8-sig")
+        if "database" not in parser:
+            parser["database"] = {}
+        parser["database"]["path"] = str(get_default_database_path())
+        _write_config(path, parser)
     return path
 
 

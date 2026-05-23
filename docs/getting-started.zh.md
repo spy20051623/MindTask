@@ -16,14 +16,15 @@ pip install -e .[ui]
 python MindTask_ui.py
 ```
 
-MindTask 会把当前配置保存在 `config/mindtask.ini`。如果这个文件不存在，MindTask 会从 `config/mindtask.ini.template` 创建配置，并打开欢迎设置窗口。
+MindTask 会先查找软件目录旁的 `config/mindtask.ini`，再查找 `%APPDATA%\MindTask\mindtask.ini`。如果两者都不存在，会打开欢迎设置窗口。
 
 ## 2. 完成首次设置
 
-欢迎设置需要做两个选择：
+欢迎设置需要做三个选择：
 
 1. 选择语言。
-2. 选择数据库。
+2. 选择配置文件创建位置。默认是 **系统路径（推荐）**，升级时能继续沿用设置。
+3. 选择数据库。
 
 新用户建议选择 **新建数据库**。请选择一个绝对路径，文件名需要以 `.db`、`.sqlite` 或 `.sqlite3` 结尾。
 

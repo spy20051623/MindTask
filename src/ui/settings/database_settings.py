@@ -160,7 +160,7 @@ class DatabaseSettingsMixin:
 
         try:
             save_database_path(target_db.db_path, self.config_path)
-            self.db = MindTaskDB(config_path=self.config_path)
+            self.db = MindTaskDB(config_path=self.config_path, create_if_missing=False)
             self.database_path_edit.setText(self.db.db_path)
             self._refresh_about_settings_info()
             self._refresh_data_settings_info()
@@ -168,6 +168,8 @@ class DatabaseSettingsMixin:
             self.show_status_message("status_database_switched", name=Path(self.db.db_path).name)
             self.refresh_all()
         except Exception as exc:
+            if self.handle_unavailable_database_if_needed(exc):
+                return
             self.show_inline_message(
                 self.switch_database_message,
                 self.tr("database_opened_config_failed", error=exc),
@@ -232,7 +234,7 @@ class DatabaseSettingsMixin:
         try:
             new_db = self._database_file_service().create_database(str(target.path), overwrite=target.exists)
             save_database_path(new_db.db_path, self.config_path)
-            self.db = MindTaskDB(config_path=self.config_path)
+            self.db = MindTaskDB(config_path=self.config_path, create_if_missing=False)
             self.database_path_edit.setText(self.db.db_path)
             self.new_database_path_edit.clear()
             self._refresh_about_settings_info()
@@ -247,6 +249,8 @@ class DatabaseSettingsMixin:
                 ALERT_DANGER,
             )
         except Exception as exc:
+            if self.handle_unavailable_database_if_needed(exc):
+                return
             self.show_inline_message(
                 self.new_database_message,
                 self.tr("could_not_create_database", error=exc),
@@ -255,7 +259,7 @@ class DatabaseSettingsMixin:
 
     def reload_current_database(self) -> None:
         try:
-            self.db = MindTaskDB(config_path=self.config_path)
+            self.db = MindTaskDB(config_path=self.config_path, create_if_missing=False)
             self.database_path_edit.setText(self.db.db_path)
             self._refresh_about_settings_info()
             self._refresh_data_settings_info()
@@ -263,6 +267,8 @@ class DatabaseSettingsMixin:
             self.show_status_message("status_database_reloaded", name=Path(self.db.db_path).name)
             self.refresh_all()
         except Exception as exc:
+            if self.handle_unavailable_database_if_needed(exc):
+                return
             self.show_inline_message(
                 self.reload_database_message,
                 self.tr("could_not_reload_database", error=exc),

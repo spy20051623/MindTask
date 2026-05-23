@@ -16,14 +16,15 @@ Open the app:
 python MindTask_ui.py
 ```
 
-MindTask stores its active configuration in `config/mindtask.ini`. If that file does not exist, MindTask creates it from `config/mindtask.ini.template` and opens the welcome setup window.
+MindTask first looks for a local `config/mindtask.ini` next to the app, then for `%APPDATA%\MindTask\mindtask.ini`. If neither exists, MindTask opens the welcome setup window.
 
 ## 2. Complete First-Run Setup
 
-The welcome setup has two decisions:
+The welcome setup has three decisions:
 
 1. Choose a language.
-2. Choose a database.
+2. Choose where to create the config file. The default is **System path (recommended)**, which keeps settings across upgrades.
+3. Choose a database.
 
 For a new user, choose **Create new database**. Pick an absolute file path ending in `.db`, `.sqlite`, or `.sqlite3`.
 

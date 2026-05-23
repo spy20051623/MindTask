@@ -44,7 +44,7 @@ pip install -e .[ui]
 python MindTask_ui.py
 ```
 
-首次启动时，MindTask 会从 `config/mindtask.ini.template` 创建当前配置，并打开欢迎设置流程。选择语言，然后打开已有数据库或创建新数据库。
+首次启动时，MindTask 会先查找软件目录旁的 `config/mindtask.ini`，再查找系统路径 `%APPDATA%\MindTask\mindtask.ini`。如果两者都不存在，会打开欢迎设置流程。选择语言，选择配置文件创建位置，然后打开已有数据库或创建新数据库。
 
 默认本地数据库是 `data/mindtask.db`。
 
@@ -71,7 +71,7 @@ MindTask/
 
 ## 配置
 
-默认设置位于 `config/mindtask.ini.template`。当配置文件缺失时，MindTask 会从该模板创建当前配置。数据库路径来自配置，也可以通过桌面端的数据设置页面修改。
+默认设置位于 `config/mindtask.ini.template`。当软件目录存在 `config/mindtask.ini` 时会优先使用它；否则使用 `%APPDATA%\MindTask\mindtask.ini`。数据库路径来自配置，也可以通过桌面端的数据设置页面修改。
 
 本地数据库文件和生成的配置文件不应提交到仓库。
 
