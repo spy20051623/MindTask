@@ -19,6 +19,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(raw_args)
 
     try:
+        from PySide6.QtGui import QIcon
         from PySide6.QtWidgets import QApplication, QDialog
     except ModuleNotFoundError as exc:
         if exc.name == "PySide6":
@@ -36,12 +37,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 1
 
     from .main_window import MindTaskWindow
+    from .shared.app_icon import app_icon_path
     from .shared.style import THEME_SYSTEM, build_app_style
     from .welcome import WelcomeDialog
 
     app = QApplication([sys.argv[0]])
     app.setApplicationName("MindTask")
     app.setOrganizationName("MindTask")
+    app.setWindowIcon(QIcon(str(app_icon_path())))
     app.setStyle("Fusion")
     app.setProperty("mindtask_theme", THEME_SYSTEM)
     app.setStyleSheet(build_app_style(THEME_SYSTEM, app))
