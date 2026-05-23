@@ -10,7 +10,6 @@ from typing import Optional, Sequence
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="MindTask desktop UI")
-    parser.add_argument("--config", help="Path to the MindTask config file")
     return parser
 
 
@@ -28,14 +27,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         raise
 
     try:
-        from ..core import config_exists, ensure_config_exists
+        from ..core import DatabaseInvalidError, DatabaseMissingError, find_config_path, load_config
 
-        first_run = not config_exists(args.config)
-        ensure_config_exists(args.config)
+        config_path = find_config_path()
+        first_run = config_path is None
     except FileNotFoundError as exc:
         print(str(exc), file=sys.stderr)
         return 1
 
+    from .database_unavailable import DatabaseUnavailableDialog
     from .main_window import MindTaskWindow
     from .shared.app_icon import app_icon_path
     from .shared.style import THEME_SYSTEM, build_app_style
@@ -50,11 +50,26 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     app.setStyleSheet(build_app_style(THEME_SYSTEM, app))
 
     if first_run:
-        welcome = WelcomeDialog(config_path=args.config)
+        welcome = WelcomeDialog()
         if welcome.exec() != QDialog.DialogCode.Accepted:
             return 0
+        config_path = welcome.config_path
 
-    window = MindTaskWindow(config_path=args.config)
+    while True:
+        try:
+            window = MindTaskWindow(config_path=str(config_path))
+            break
+        except (DatabaseMissingError, DatabaseInvalidError) as exc:
+            language = load_config(str(config_path)).ui_language
+            reason = "missing" if isinstance(exc, DatabaseMissingError) else "invalid"
+            dialog = DatabaseUnavailableDialog(
+                config_path=str(config_path),
+                database_path=str(exc),
+                language=language,
+                reason=reason,
+            )
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return 0
     window.show()
     return app.exec()
 

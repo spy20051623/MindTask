@@ -30,6 +30,10 @@ python MindTask_cli.py --config config/dev.ini list
 
 The database path is read from the active config file. The CLI does not accept a direct database path option.
 
+Without `--config`, the CLI looks for local `config/mindtask.ini` first, then `%APPDATA%\MindTask\mindtask.ini`. If no config file exists, the CLI reports an error instead of creating one. Start the desktop UI to complete first-run setup.
+
+If the active config points to a missing or unusable database file, the CLI reports an error and does not create a database.
+
 ## Common Values
 
 Priority values:

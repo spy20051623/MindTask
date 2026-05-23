@@ -7,6 +7,7 @@ import os
 import json
 import sqlite3
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .config import load_config
@@ -34,6 +35,14 @@ class ClosingConnection(sqlite3.Connection):
     def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
         super().__exit__(exc_type, exc_value, traceback)
         self.close()
+
+
+class DatabaseMissingError(FileNotFoundError):
+    """Raised when configured database is missing outside an explicit create flow."""
+
+
+class DatabaseInvalidError(RuntimeError):
+    """Raised when configured database exists but is not a usable MindTask database."""
 
 
 def get_database_path(config_path: Optional[str] = None) -> str:
@@ -78,18 +87,57 @@ def normalize_task_due(due_date: Optional[str], due_mode: Optional[str] = None) 
 class MindTaskDB:
     """SQLite-backed task database."""
 
-    def __init__(self, initialize: bool = True, config_path: Optional[str] = None):
+    def __init__(self, initialize: bool = True, config_path: Optional[str] = None, create_if_missing: bool = False):
         self.config = load_config(config_path)
         self.db_path = self.config.database_path
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        self.create_if_missing = create_if_missing
+        if create_if_missing:
+            os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        elif not os.path.exists(self.db_path):
+            raise DatabaseMissingError(self.db_path)
+        else:
+            self._validate_database_available()
         if initialize:
             self.initialize_database()
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path, factory=ClosingConnection)
+        if not self.create_if_missing:
+            self._validate_database_available()
+            connect_target = f"{Path(self.db_path).resolve(strict=False).as_uri()}?mode=rw"
+            conn = sqlite3.connect(connect_target, uri=True, factory=ClosingConnection)
+        else:
+            conn = sqlite3.connect(self.db_path, factory=ClosingConnection)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
         return conn
+
+    def _validate_database_available(self) -> None:
+        path = Path(self.db_path)
+        if not path.exists():
+            raise DatabaseMissingError(self.db_path)
+        if not path.is_file():
+            raise DatabaseInvalidError(self.db_path)
+        try:
+            if path.stat().st_size == 0:
+                raise DatabaseInvalidError(self.db_path)
+            with path.open("rb") as fh:
+                if fh.read(16) != b"SQLite format 3\x00":
+                    raise DatabaseInvalidError(self.db_path)
+            with sqlite3.connect(f"{path.resolve(strict=False).as_uri()}?mode=rw", uri=True) as conn:
+                quick_check = conn.execute("PRAGMA quick_check").fetchone()
+                if not quick_check or quick_check[0] != "ok":
+                    raise DatabaseInvalidError(self.db_path)
+                self._validate_mindtask_schema(conn)
+        except (DatabaseMissingError, DatabaseInvalidError):
+            raise
+        except (OSError, sqlite3.DatabaseError) as exc:
+            raise DatabaseInvalidError(self.db_path) from exc
+
+    def _validate_mindtask_schema(self, conn: sqlite3.Connection) -> None:
+        rows = conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
+        table_names = {row[0] for row in rows}
+        if not {"projects", "tasks", "operation_history"}.issubset(table_names):
+            raise DatabaseInvalidError(self.db_path)
 
     def _row_dict(self, conn: sqlite3.Connection, table: str, row_id: int) -> Optional[Dict[str, Any]]:
         row = conn.execute(f"SELECT * FROM {table} WHERE id = ?", (row_id,)).fetchone()

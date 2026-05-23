@@ -1,7 +1,7 @@
 from datetime import datetime
 import time
 
-from src.core import MindTaskDB
+from src.core import DatabaseMissingError, MindTaskDB
 from src.core.config import ensure_config_exists, load_config, save_hide_completed_tasks
 import pytest
 
@@ -19,8 +19,20 @@ path = {db_path}
     return str(config_path)
 
 
+def test_database_missing_requires_explicit_create(tmp_path):
+    config_path = write_config(tmp_path)
+    db_path = tmp_path / "mindtask.db"
+
+    with pytest.raises(DatabaseMissingError):
+        MindTaskDB(config_path=config_path)
+
+    assert not db_path.exists()
+    MindTaskDB(config_path=config_path, create_if_missing=True)
+    assert db_path.exists()
+
+
 def test_task_lifecycle(tmp_path):
-    db = MindTaskDB(config_path=write_config(tmp_path))
+    db = MindTaskDB(config_path=write_config(tmp_path), create_if_missing=True)
 
     project_id = db.create_project("Test Project")
     task_id = db.create_task(
@@ -53,7 +65,7 @@ def test_task_lifecycle(tmp_path):
 
 
 def test_search_and_stats(tmp_path):
-    db = MindTaskDB(config_path=write_config(tmp_path))
+    db = MindTaskDB(config_path=write_config(tmp_path), create_if_missing=True)
     db.create_task("Alpha task", priority=1)
     db.create_task("Beta task", priority=2)
 
@@ -70,7 +82,7 @@ def test_search_and_stats(tmp_path):
 
 
 def test_task_list_and_search_are_unlimited_by_default(tmp_path):
-    db = MindTaskDB(config_path=write_config(tmp_path))
+    db = MindTaskDB(config_path=write_config(tmp_path), create_if_missing=True)
     for index in range(25):
         db.create_task(f"Bulk task {index:02d}")
 
@@ -81,7 +93,7 @@ def test_task_list_and_search_are_unlimited_by_default(tmp_path):
 
 
 def test_task_timestamps_use_local_time_and_ignore_noop_updates(tmp_path):
-    db = MindTaskDB(config_path=write_config(tmp_path))
+    db = MindTaskDB(config_path=write_config(tmp_path), create_if_missing=True)
 
     before_create = datetime.now()
     task_id = db.create_task("Timestamp task")
@@ -105,7 +117,7 @@ def test_task_timestamps_use_local_time_and_ignore_noop_updates(tmp_path):
 
 
 def test_database_initialization_does_not_seed_projects(tmp_path):
-    db = MindTaskDB(config_path=write_config(tmp_path))
+    db = MindTaskDB(config_path=write_config(tmp_path), create_if_missing=True)
 
     assert db.get_projects() == []
 
@@ -161,7 +173,7 @@ def test_hide_completed_tasks_config_defaults_and_saves(tmp_path):
 
 
 def test_sample_data_is_explicit(tmp_path):
-    db = MindTaskDB(config_path=write_config(tmp_path))
+    db = MindTaskDB(config_path=write_config(tmp_path), create_if_missing=True)
 
     sample = db.create_sample_data()
 
@@ -176,7 +188,7 @@ def test_sample_data_is_explicit(tmp_path):
 
 
 def test_project_management_summaries_and_empty_delete(tmp_path):
-    db = MindTaskDB(config_path=write_config(tmp_path))
+    db = MindTaskDB(config_path=write_config(tmp_path), create_if_missing=True)
     project_id = db.create_project("Managed")
     empty_project_id = db.create_project("Empty")
     task_id = db.create_task("Project task", project_id=project_id, status=1)
@@ -204,7 +216,7 @@ def test_project_management_summaries_and_empty_delete(tmp_path):
 
 
 def test_tasks_are_listed_by_id_by_default(tmp_path):
-    db = MindTaskDB(config_path=write_config(tmp_path))
+    db = MindTaskDB(config_path=write_config(tmp_path), create_if_missing=True)
     first_id = db.create_task("First task", priority=0, due_date="2026-05-20 10:00:00")
     second_id = db.create_task("Second task", priority=3, due_date="2026-05-10 10:00:00")
     third_id = db.create_task("Third task", priority=1, due_date="2026-05-01 10:00:00")
@@ -214,7 +226,7 @@ def test_tasks_are_listed_by_id_by_default(tmp_path):
 
 
 def test_due_date_requires_standard_format(tmp_path):
-    db = MindTaskDB(config_path=write_config(tmp_path))
+    db = MindTaskDB(config_path=write_config(tmp_path), create_if_missing=True)
 
     task_id = db.create_task("Due date task", due_date="2026-05-15 18:00:00")
     assert db.get_task(task_id)["due_date"] == "2026-05-15 18:00:00"
@@ -230,7 +242,7 @@ def test_due_date_requires_standard_format(tmp_path):
 
 
 def test_due_mode_distinguishes_all_day_and_exact_time(tmp_path):
-    db = MindTaskDB(config_path=write_config(tmp_path))
+    db = MindTaskDB(config_path=write_config(tmp_path), create_if_missing=True)
 
     all_day_id = db.create_task("All day", due_date="2026-05-14 18:30:00", due_mode="all_day")
     exact_id = db.create_task("Exact", due_date="2026-05-14 18:30:00", due_mode="exact_time")
@@ -250,7 +262,7 @@ def test_due_mode_distinguishes_all_day_and_exact_time(tmp_path):
 
 
 def test_history_and_undo_create_update_delete(tmp_path):
-    db = MindTaskDB(config_path=write_config(tmp_path))
+    db = MindTaskDB(config_path=write_config(tmp_path), create_if_missing=True)
 
     task_id = db.create_task("History task", priority=1)
     assert db.get_task(task_id) is not None
@@ -278,7 +290,7 @@ def test_history_and_undo_create_update_delete(tmp_path):
 
 
 def test_undo_operations_until_selected_history(tmp_path):
-    db = MindTaskDB(config_path=write_config(tmp_path))
+    db = MindTaskDB(config_path=write_config(tmp_path), create_if_missing=True)
 
     first_id = db.create_task("First")
     second_id = db.create_task("Second")

@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QComboBox,
+    QDialog,
     QFormLayout,
     QFrame,
     QHBoxLayout,
@@ -36,10 +37,13 @@ from PySide6.QtWidgets import (
 )
 
 from ..core import (
+    DatabaseInvalidError,
+    DatabaseMissingError,
     MindTaskDB,
     get_config_path,
     normalize_due_date,
 )
+from .database_unavailable import DatabaseUnavailableDialog
 from .shared.alert_message import ALERT_WARN, AlertMessage
 from .shared.constants import (
     HISTORY_ENTITY_TRANSLATION_KEYS,
@@ -77,6 +81,10 @@ SIDEBAR_WIDTH = 220
 HISTORY_PAGE_SIZE = 100
 
 
+class _DatabaseUnavailableHandled(Exception):
+    """Internal control flow used to stop nested UI work after database selection starts."""
+
+
 class NoWheelComboBox(QComboBox):
     """Combo box that ignores mouse wheel changes in the detail drawer."""
 
@@ -102,7 +110,7 @@ class MindTaskWindow(
     def __init__(self, config_path: Optional[str] = None):
         super().__init__()
         self.config_path = str(get_config_path(config_path))
-        self.db = MindTaskDB(config_path=config_path)
+        self.db = MindTaskDB(config_path=config_path, create_if_missing=False)
         self.tasks: List[Dict[str, Any]] = []
         self.selected_task_id: Optional[int] = None
         self.theme = self.db.config.ui_theme
@@ -122,6 +130,7 @@ class MindTaskWindow(
         self.detail_mode = "closed"
         self._restoring_task_selection = False
         self._restoring_filter_selection = False
+        self._database_guard_depth = 0
         self._accepted_task_view: Optional[str] = None
         self._accepted_project_filter: Optional[int] = None
         self.translator = Translator(self.language)
@@ -137,6 +146,31 @@ class MindTaskWindow(
         self.refresh_all()
         self.position_sidebar_action_button()
         QTimer.singleShot(0, self.position_sidebar_action_button)
+
+    def handle_unavailable_database_if_needed(self, exc: Exception) -> bool:
+        if not isinstance(exc, (DatabaseMissingError, DatabaseInvalidError)):
+            return False
+        reason = "missing" if isinstance(exc, DatabaseMissingError) else "invalid"
+        dialog = DatabaseUnavailableDialog(
+            config_path=self.config_path,
+            database_path=str(exc),
+            language=self.language,
+            reason=reason,
+            parent=self,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return True
+        try:
+            self.db = MindTaskDB(config_path=self.config_path, create_if_missing=False)
+            self.theme = self.db.config.ui_theme
+            self.language = self.db.config.ui_language
+            self.translator.set_language(self.language)
+            self.retranslate_ui()
+            self.refresh_all(force_detail=True)
+        except Exception as next_exc:
+            if not self.handle_unavailable_database_if_needed(next_exc):
+                raise
+        return True
 
     def tr(self, key: str, **kwargs: object) -> str:
         return self.translator.text(key, **kwargs)
@@ -1534,3 +1568,50 @@ class MindTaskWindow(
         colors = colors_for_theme(self.theme, QApplication.instance())
         item.setForeground(QColor(colors["text"]))
         item.setBackground(QColor(colors["input_bg"]))
+
+
+def _with_unavailable_database_handler(method: Any) -> Any:
+    def wrapped(self: MindTaskWindow, *args: object, **kwargs: object) -> object:
+        self._database_guard_depth = getattr(self, "_database_guard_depth", 0) + 1
+        try:
+            return method(self, *args, **kwargs)
+        except (DatabaseMissingError, DatabaseInvalidError) as exc:
+            self.handle_unavailable_database_if_needed(exc)
+            if self._database_guard_depth > 1:
+                raise _DatabaseUnavailableHandled()
+            return False
+        except _DatabaseUnavailableHandled:
+            if self._database_guard_depth > 1:
+                raise
+            return False
+        finally:
+            self._database_guard_depth = max(0, getattr(self, "_database_guard_depth", 1) - 1)
+
+    return wrapped
+
+
+for _method_name in (
+    "refresh_all",
+    "switch_page",
+    "refresh_tasks",
+    "refresh_projects",
+    "refresh_project_table",
+    "open_projects_drawer",
+    "open_history_drawer",
+    "refresh_history_drawer",
+    "save_selected_task",
+    "create_task_from_detail",
+    "create_task_and_continue",
+    "complete_selected_task",
+    "delete_selected_task",
+    "refresh_task_detail_history",
+    "load_selected_task",
+    "refresh_current_task_detail_text",
+    "undo_latest_from_history_drawer",
+    "undo_to_selected_from_history_drawer",
+    "reload_current_database",
+    "open_new_project_dialog",
+    "open_rename_project_dialog",
+    "delete_selected_project",
+):
+    setattr(MindTaskWindow, _method_name, _with_unavailable_database_handler(getattr(MindTaskWindow, _method_name)))

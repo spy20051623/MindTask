@@ -16,6 +16,12 @@ Update it immediately before creating a release commit, not after every local ch
 
 ## Entries
 
+## 1.2.11 - 2026-05-23
+
+- Summary: Make desktop startup safer by separating first-run setup from unavailable database handling.
+- Changed: Added the new config lookup order for desktop and CLI use; introduced first-run setup for choosing config and database locations; prevented the desktop UI from silently creating databases when the configured database is missing or unusable; added a dedicated “Database Cannot Be Opened” flow for choosing another database or explicitly creating a new one; strengthened CLI errors for missing or unusable database files; and updated user documentation for the new config and database startup behavior.
+- Verified: Ran Python compile checks, CLI version checks, focused config lookup checks, missing/invalid database smoke checks for CLI and desktop startup, and offscreen UI checks for the unavailable-database dialog.
+
 ## 1.2.10 - 2026-05-23
 
 - Summary: Add smoother task creation controls and a dedicated MindTask application icon.

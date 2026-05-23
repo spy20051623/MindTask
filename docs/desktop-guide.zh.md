@@ -18,13 +18,9 @@ pip install -e .[ui]
 python MindTask_ui.py
 ```
 
-使用自定义配置文件：
+桌面端按这个顺序选择配置文件：软件目录旁的 `config/mindtask.ini`，然后是 `%APPDATA%\MindTask\mindtask.ini`。首次启动时，如果两者都不存在，MindTask 会打开欢迎设置窗口。设置流程会要求选择语言、配置文件创建位置，然后选择打开已有数据库或创建新数据库。只有设置完成后才会进入主窗口。如果模板缺失，启动会给出明确错误。
 
-```bash
-python MindTask_ui.py --config path/to/mindtask.ini
-```
-
-首次启动时，如果当前配置文件不存在，MindTask 会把 `config/mindtask.ini.template` 复制到目标位置，并打开欢迎设置窗口。设置流程会要求选择语言，然后选择打开已有数据库或创建新数据库。只有设置完成后才会进入主窗口。如果模板缺失，启动会给出明确错误。
+如果当前配置存在，但其中的数据库文件不存在或不可用，MindTask 不会静默创建新数据库，而是打开数据库选择窗口，由用户选择已有数据库或明确新建数据库。
 
 ## 布局
 

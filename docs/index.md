@@ -22,6 +22,6 @@ MindTask 由 Codex 辅助开发。
 - [CLI 参考](cli-reference.zh.md)：命令列表、参数和示例
 - [发布记录](release-notes.zh.md)：按版本记录的开发历史
 
-Core configuration is created from `config/mindtask.ini.template` when `config/mindtask.ini` is missing. The database path is read from the active config file.
+The desktop UI reads local `config/mindtask.ini` first, then `%APPDATA%\MindTask\mindtask.ini`; if neither exists, it opens first-run setup. See the Desktop Guide for the full rule.
 
-当 `config/mindtask.ini` 缺失时，核心配置会从 `config/mindtask.ini.template` 创建。数据库路径从当前配置文件读取。
+桌面端会优先读取软件目录旁的 `config/mindtask.ini`，其次读取 `%APPDATA%\MindTask\mindtask.ini`；如果两者都不存在，会进入首次设置。完整规则见桌面端指南。
