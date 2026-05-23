@@ -8,13 +8,14 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="mindtask",
-    version="1.2.9",
+    version="1.2.10",
     author="PY Shu",
     description="A small SQLite task manager with CLI and desktop UI",
     long_description=long_description,
     long_description_content_type="text/markdown",
     packages=find_packages(include=["src", "src.*"]),
     package_dir={"": "."},
+    package_data={"src.ui": ["assets/icons/*"]},
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",

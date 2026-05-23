@@ -128,6 +128,7 @@ class MindTaskWindow(
         self._apply_theme_to_app(self.theme)
 
         self.setWindowTitle("MindTask")
+        self.setWindowIcon(QApplication.windowIcon())
         self.resize(1180, 720)
 
         self._build_layout()
@@ -474,6 +475,9 @@ class MindTaskWindow(
         self.save_button = QPushButton()
         self.save_button.setObjectName("PrimaryButton")
         self.save_button.clicked.connect(self.save_selected_task)
+        self.create_continue_button = QPushButton()
+        self.create_continue_button.setObjectName("SecondaryButton")
+        self.create_continue_button.clicked.connect(self.create_task_and_continue)
         self.discard_button = QPushButton()
         self.discard_button.setObjectName("SecondaryButton")
         self.discard_button.clicked.connect(self.discard_selected_task_changes)
@@ -485,6 +489,7 @@ class MindTaskWindow(
         self.task_delete_button.setObjectName("DangerButton")
         self.task_delete_button.clicked.connect(self.delete_selected_task)
         button_row.addWidget(self.save_button)
+        button_row.addWidget(self.create_continue_button)
         button_row.addWidget(self.discard_button)
         button_row.addWidget(self.task_delete_button)
 
@@ -660,6 +665,7 @@ class MindTaskWindow(
         self.checklist_empty_label.setText(self.tr("no_checklist_items"))
         self.refresh_checklist_from_description()
         self.save_button.setText(self.tr("create_task") if self.detail_mode == "create" else self.tr("save"))
+        self.create_continue_button.setText(self.tr("create_and_continue"))
         self.discard_button.setText(self.tr("cancel"))
         self.complete_button.setText(self.tr("mark_done"))
         self.task_delete_button.setText(self.tr("delete"))
@@ -1000,23 +1006,8 @@ class MindTaskWindow(
         self._update_detail_field_states()
 
     def save_selected_task(self) -> bool:
-        if not self.title_edit.text().strip():
-            self._update_detail_field_states()
-            QMessageBox.warning(self, self.tr("invalid_task"), self.tr("title_required"))
-            return False
-
-        date_invalid, time_invalid = self.due_editor.invalid_parts()
-        if date_invalid or time_invalid:
-            self._update_detail_field_states()
-            message = self.tr("invalid_date") if date_invalid else self.tr("invalid_time")
-            QMessageBox.warning(self, self.tr("invalid_due_date"), message)
-            return False
-
-        try:
-            due_date = self.due_editor.due_value()
-            normalize_due_date(due_date)
-        except ValueError as exc:
-            QMessageBox.warning(self, self.tr("invalid_due_date"), str(exc))
+        due_date = self._validated_detail_due_date()
+        if due_date is False:
             return False
 
         if self.detail_mode == "create":
@@ -1054,12 +1045,34 @@ class MindTaskWindow(
         self.show_task_operation_status(status_key, id=task_id)
         return True
 
-    def create_task_from_detail(self, due_date: Optional[str]) -> bool:
+    def _validated_detail_due_date(self) -> object:
+        if not self.title_edit.text().strip():
+            self._update_detail_field_states()
+            QMessageBox.warning(self, self.tr("invalid_task"), self.tr("title_required"))
+            return False
+
+        date_invalid, time_invalid = self.due_editor.invalid_parts()
+        if date_invalid or time_invalid:
+            self._update_detail_field_states()
+            message = self.tr("invalid_date") if date_invalid else self.tr("invalid_time")
+            QMessageBox.warning(self, self.tr("invalid_due_date"), message)
+            return False
+
+        try:
+            due_date = self.due_editor.due_value()
+            normalize_due_date(due_date)
+        except ValueError as exc:
+            QMessageBox.warning(self, self.tr("invalid_due_date"), str(exc))
+            return False
+
+        return due_date
+
+    def create_task_from_detail(self, due_date: Optional[str], continue_new: bool = False) -> bool:
         try:
             task_id = self.db.create_task(
                 title=self.title_edit.text().strip(),
                 description=self.description_edit.toPlainText().strip(),
-                status=0,
+                status=self.status_combo.currentData(),
                 priority=self.priority_combo.currentData(),
                 project_id=self.project_combo.currentData(),
                 due_date=due_date,
@@ -1073,7 +1086,17 @@ class MindTaskWindow(
         self.refresh_all(force_detail=True)
         self._select_task(task_id)
         self.show_task_operation_status("status_task_created", id=task_id)
+        if continue_new:
+            self.open_new_task_detail()
         return True
+
+    def create_task_and_continue(self) -> bool:
+        if self.detail_mode != "create":
+            return False
+        due_date = self._validated_detail_due_date()
+        if due_date is False:
+            return False
+        return self.create_task_from_detail(due_date, continue_new=True)
 
     def _task_is_transitioning_to_completed(self) -> bool:
         original_status = int(self._detail_original_values.get("status") or 0)
@@ -1448,8 +1471,6 @@ class MindTaskWindow(
         self._set_create_detail_mode(False)
 
     def _set_create_detail_mode(self, create_mode: bool) -> None:
-        self.status_label.setVisible(not create_mode)
-        self.status_combo.setVisible(not create_mode)
         for widget in (
             self.due_alert_spacer_label,
             self.due_alert_row,
@@ -1464,6 +1485,7 @@ class MindTaskWindow(
             self.task_delete_button,
         ):
             widget.setVisible(not create_mode)
+        self.create_continue_button.setVisible(create_mode)
         if create_mode:
             self.complete_button.hide()
             self.save_button.setText(self.tr("create_task"))

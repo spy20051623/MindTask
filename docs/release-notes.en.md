@@ -16,6 +16,12 @@ Update it immediately before creating a release commit, not after every local ch
 
 ## Entries
 
+## 1.2.10 - 2026-05-23
+
+- Summary: Add smoother task creation controls and a dedicated MindTask application icon.
+- Changed: Added a create-and-continue action for entering multiple tasks in sequence; allowed the task status to be selected while creating a new task; added the MindTask AI-and-todo app icon as packaged UI assets; set the runtime window/taskbar icon; and configured the Windows packaging script so the generated `MindTask.exe` uses the new icon.
+- Verified: Ran Python compile checks, focused icon transparency/loading checks, Qt icon loading smoke checks, and PowerShell syntax checks for the Windows packaging script.
+
 ## 1.2.9 - 2026-05-22
 
 - Summary: Fix local timestamp handling and add safer pagination for larger task and history lists.

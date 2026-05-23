@@ -15,6 +15,8 @@ $SchemaPath = Join-Path $ProjectRoot "sql\mindtask_db_schema.sql"
 $ReadmePath = Join-Path $ProjectRoot "README.md"
 $ChineseReadmePath = Join-Path $ProjectRoot "README.zh.md"
 $DocsPath = Join-Path $ProjectRoot "docs"
+$IconPngPath = Join-Path $ProjectRoot "src\ui\assets\icons\mindtask-icon.png"
+$IconIcoPath = Join-Path $ProjectRoot "src\ui\assets\icons\mindtask-icon.ico"
 $Version = & $Python -c "import src; print(src.__version__)"
 $ZipPath = Join-Path $DistRoot "$AppName-$Version-windows-x64.zip"
 $PipIndexArgs = @(
@@ -42,6 +44,12 @@ if (-not (Test-Path -LiteralPath $ChineseReadmePath)) {
 }
 if (-not (Test-Path -LiteralPath $DocsPath)) {
     throw "Docs directory was not found: $DocsPath"
+}
+if (-not (Test-Path -LiteralPath $IconPngPath)) {
+    throw "Application icon PNG was not found: $IconPngPath"
+}
+if (-not (Test-Path -LiteralPath $IconIcoPath)) {
+    throw "Application icon ICO was not found: $IconIcoPath"
 }
 
 Push-Location $ProjectRoot
@@ -73,9 +81,11 @@ try {
         --onedir `
         --windowed `
         --name $AppName `
+        --icon $IconIcoPath `
         --specpath $BuildRoot `
         --add-data "$TemplatePath;config" `
         --add-data "$SchemaPath;sql" `
+        --add-data "$IconPngPath;assets/icons" `
         --collect-all qtawesome `
         --exclude-module PySide6.QtQml `
         --exclude-module PySide6.QtQuick `
