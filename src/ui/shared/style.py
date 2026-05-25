@@ -161,7 +161,7 @@ QStackedWidget#PaginationPageStack QWidget {{
     background: transparent;
     border: none;
 }}
-QLineEdit, QTextEdit, QTextBrowser, QComboBox, QDateEdit, QListWidget, QTableWidget, QTreeWidget {{
+QLineEdit, QTextEdit, QTextBrowser, QComboBox, QDateEdit, QSpinBox, QListWidget, QTableWidget, QTreeWidget {{
     background: {colors["input_bg"]};
     color: {colors["text"]};
     border: 1px solid {colors["border"]};
@@ -169,6 +169,25 @@ QLineEdit, QTextEdit, QTextBrowser, QComboBox, QDateEdit, QListWidget, QTableWid
     padding: 6px;
     selection-background-color: {colors["selection_bg"]};
     selection-color: {colors["selection_text"]};
+}}
+QWidget#AIMessageContainer {{
+    background: transparent;
+    border: none;
+}}
+QScrollArea#AIChatMessagesScroll,
+QScrollArea#AIChatMessagesScroll > QWidget,
+QScrollArea#AIChatMessagesScroll > QWidget > QWidget {{
+    background: transparent;
+    border: none;
+}}
+QFrame#AIEmptyChatState {{
+    background: transparent;
+    border: none;
+}}
+QLabel#AIEmptyChatText {{
+    color: {colors["muted_text"]};
+    font-size: 18px;
+    font-weight: 500;
 }}
 QFrame#DetailPanel QPushButton {{
     border: 1px solid transparent;
@@ -190,6 +209,14 @@ QLineEdit#PaginationPageEdit {{
 QLineEdit#PaginationPageEdit:focus {{
     border: 1px solid {colors["focus_border"]};
 }}
+QComboBox#CompactComboBox {{
+    min-width: 108px;
+    max-width: 132px;
+}}
+QSpinBox#CompactSpinBox {{
+    min-width: 80px;
+    max-width: 96px;
+}}
 QLineEdit::placeholder {{
     color: {colors["placeholder"]};
 }}
@@ -198,6 +225,11 @@ QComboBox QAbstractItemView, QDateEdit QAbstractItemView {{
     color: {colors["text"]};
     selection-background-color: {colors["selection_bg"]};
     selection-color: {colors["selection_text"]};
+}}
+QSpinBox::up-button, QSpinBox::down-button {{
+    background: {colors["panel_bg"]};
+    border-left: 1px solid {colors["border"]};
+    width: 16px;
 }}
 QLabel {{
     background: transparent;
@@ -221,6 +253,77 @@ QLabel#SectionLabel {{
 }}
 QLabel#MutedLabel {{
     color: {colors["muted_text"]};
+}}
+QFrame#AIUserMessage, QFrame#AIAssistantMessage {{
+    border: 1px solid {colors["border"]};
+    border-left: 3px solid {colors["focus_border"]};
+    border-radius: 6px;
+}}
+QFrame#AIUserMessage {{
+    background: {"#eef6ff" if colors["app_bg"] == "#eef2f7" else "#1d2430"};
+}}
+QFrame#AIAssistantMessage {{
+    background: {colors["input_bg"]};
+    border-left: 3px solid {colors["secondary"]};
+}}
+QLabel#AIMessageRole {{
+    color: {colors["strong_text"]};
+    font-weight: 600;
+    font-size: 12px;
+    padding: 0;
+    margin: 0;
+}}
+QLabel#AIMessageHeaderStatus {{
+    color: {colors["muted_text"]};
+    font-size: 12px;
+    padding: 0;
+    margin: 0;
+}}
+QLabel#AIMessageMeta {{
+    color: {colors["muted_text"]};
+    font-size: 12px;
+    padding: 0;
+    margin: 0;
+}}
+QTextBrowser#AIMessageBody {{
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    color: {colors["text"]};
+    font-size: 13px;
+    padding: 0;
+    selection-background-color: {colors["selection_bg"]};
+    selection-color: {colors["selection_text"]};
+}}
+QFrame#AIActionSeparator {{
+    color: {colors["border"]};
+    background: {colors["border"]};
+    max-height: 1px;
+}}
+QLabel#AIActionTitle {{
+    color: {colors["muted_text"]};
+    font-weight: 600;
+    font-size: 12px;
+}}
+QToolButton#AIActionToggle {{
+    background: transparent;
+    color: {colors["text"]};
+    border: 1px solid {colors["border"]};
+    border-radius: 4px;
+    padding: 4px 6px;
+    text-align: left;
+}}
+QToolButton#AIActionToggle:hover {{
+    background: {colors["selection_bg"]};
+}}
+QLabel#AIActionDetail {{
+    color: {colors["muted_text"]};
+    background: {colors["panel_bg"]};
+    border: 1px solid {colors["border"]};
+    border-radius: 4px;
+    padding: 6px;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 12px;
 }}
 QLabel#EmptyState {{
     color: {colors["muted_text"]};
@@ -258,6 +361,7 @@ QFrame#DetailPanel QDateEdit[detailModified="true"] {{
 QFrame#DetailPanel QLineEdit[detailInvalid="true"],
 QFrame#DetailPanel QComboBox[detailInvalid="true"],
 QFrame#DetailPanel QDateEdit[detailInvalid="true"],
+QFrame#DetailPanel QSpinBox[detailInvalid="true"],
 QDialog QLineEdit[detailInvalid="true"],
 QDialog QComboBox[detailInvalid="true"],
 QDialog QDateEdit[detailInvalid="true"] {{
@@ -270,6 +374,7 @@ QFrame#DetailPanel QTextEdit:focus,
 QFrame#DetailPanel QTextBrowser:focus,
 QFrame#DetailPanel QComboBox:focus,
 QFrame#DetailPanel QDateEdit:focus,
+QFrame#DetailPanel QSpinBox:focus,
 QFrame#DetailPanel QTreeWidget:focus,
 QDialog QLineEdit:focus,
 QDialog QTextEdit:focus,
@@ -417,6 +522,22 @@ QPushButton#IconButton {{
 QPushButton#IconButton:hover {{
     background: {colors["selection_bg"]};
 }}
+QPushButton#DangerIconButton {{
+    background: {colors["danger"]};
+    color: #ffffff;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 0;
+    min-width: 28px;
+    max-width: 28px;
+    min-height: 28px;
+    max-height: 28px;
+}}
+QPushButton#DangerIconButton:hover {{
+    background: {colors["danger_hover"]};
+}}
 QPushButton#NavButton {{
     background: transparent;
     color: {colors["muted_text"]};
@@ -450,6 +571,13 @@ QDialog QDialogButtonBox QPushButton {{
 QFrame#DetailPanel QPushButton:focus,
 QDialog QPushButton:focus {{
     border: 1px solid {colors["focus_border"]};
+}}
+QFrame#DetailPanel QPushButton#AIChatSendButton {{
+    min-width: 64px;
+    max-width: 64px;
+    min-height: 96px;
+    max-height: 96px;
+    padding: 0;
 }}
 """
 
@@ -492,6 +620,24 @@ QListWidget#ProjectList::item {{
     border-radius: 4px;
 }}
 QListWidget#ProjectList::item:selected {{
+    background: {colors["selection_bg"]};
+    color: {colors["selection_text"]};
+}}
+QListWidget#AIChatSessionList {{
+    background: transparent;
+    color: {colors["text"]};
+    border: 1px solid {colors["border"]};
+}}
+QListWidget#AIChatSessionList::item {{
+    background: transparent;
+    color: {colors["text"]};
+    padding: 7px 6px;
+    border-radius: 4px;
+}}
+QListWidget#AIChatSessionList::item:hover {{
+    background: {colors["input_bg"]};
+}}
+QListWidget#AIChatSessionList::item:selected {{
     background: {colors["selection_bg"]};
     color: {colors["selection_text"]};
 }}

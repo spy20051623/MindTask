@@ -11,7 +11,14 @@ import sys
 from typing import Any, Dict, List, Optional
 
 from .. import __version__
-from ..core import DatabaseInvalidError, DatabaseMissingError, MindTaskDB, find_config_path, normalize_due_date
+from ..core import (
+    DatabaseInvalidError,
+    DatabaseMigrationRequiredError,
+    DatabaseMissingError,
+    MindTaskDB,
+    find_config_path,
+    normalize_due_date,
+)
 
 
 PRIORITY_NAMES = {0: "None", 1: "Low", 2: "Medium", 3: "High"}
@@ -365,6 +372,9 @@ def main() -> int:
         cli = MindTaskCLI(str(config_path))
     except DatabaseMissingError as exc:
         print(f"Error: Database file was not found: {exc}", file=sys.stderr)
+        return 1
+    except DatabaseMigrationRequiredError as exc:
+        print(f"Error: Database must be migrated with MindTask UI first: {exc}", file=sys.stderr)
         return 1
     except DatabaseInvalidError as exc:
         print(f"Error: Database file is not usable: {exc}", file=sys.stderr)

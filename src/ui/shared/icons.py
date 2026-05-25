@@ -34,6 +34,48 @@ def themed_icon(name: str, theme: str) -> QIcon:
             os.environ["LOCALAPPDATA"] = old_local_appdata
 
 
+def danger_icon(name: str, theme: str) -> QIcon:
+    if qta is None:
+        return QIcon()
+    old_local_appdata = os.environ.get("LOCALAPPDATA")
+    os.environ["LOCALAPPDATA"] = ""
+    try:
+        return qta.icon(name, color="#ffffff")
+    except Exception:
+        return QIcon()
+    finally:
+        if old_local_appdata is None:
+            os.environ.pop("LOCALAPPDATA", None)
+        else:
+            os.environ["LOCALAPPDATA"] = old_local_appdata
+
+
+def colored_icon(name: str, color: str) -> QIcon:
+    if qta is None:
+        return QIcon()
+    old_local_appdata = os.environ.get("LOCALAPPDATA")
+    os.environ["LOCALAPPDATA"] = ""
+    try:
+        return qta.icon(name, color=color)
+    except Exception:
+        return QIcon()
+    finally:
+        if old_local_appdata is None:
+            os.environ.pop("LOCALAPPDATA", None)
+        else:
+            os.environ["LOCALAPPDATA"] = old_local_appdata
+
+
+def set_danger_button_icon(button: QPushButton, icon_name: str, fallback_text: str, theme: str) -> None:
+    icon = danger_icon(icon_name, theme)
+    if icon.isNull():
+        button.setIcon(QIcon())
+        button.setText(fallback_text)
+        return
+    button.setText("")
+    button.setIcon(icon)
+
+
 def set_action_button_icon(button: QPushButton, icon_name: str, fallback_text: str, theme: str) -> None:
     icon = themed_icon(icon_name, theme)
     if icon.isNull():

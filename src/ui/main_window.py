@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
 
 from ..core import (
     DatabaseInvalidError,
+    DatabaseMigrationRequiredError,
     DatabaseMissingError,
     MindTaskDB,
     get_config_path,
@@ -65,6 +66,7 @@ from .shared.pagination_controls import PaginationControls
 from .tasks.markdown import render_markdown_html
 from .tasks.project_page import ProjectPageMixin
 from .settings.settings_page import SettingsPageMixin
+from .ai_chat_page import AIChatPageMixin
 from .shared.status_bar import StatusBarMixin
 from .shared.style import badge_colors_for_theme, build_app_style, colors_for_theme
 from .tasks.task_detail_state import TaskDetailStateMixin
@@ -100,6 +102,7 @@ class MindTaskWindow(
     StatusBarMixin,
     TaskDetailStateMixin,
     ChecklistPanelMixin,
+    AIChatPageMixin,
     SettingsPageMixin,
     ProjectPageMixin,
     TaskPageMixin,
@@ -117,6 +120,15 @@ class MindTaskWindow(
         self.language = self.db.config.ui_language
         self.smart_task_sorting = self.db.config.smart_task_sorting
         self.hide_completed_tasks = self.db.config.hide_completed_tasks
+        self.ai_base_url = self.db.config.ai_base_url
+        self.ai_api_key = self.db.config.ai_api_key
+        self.ai_default_model = self.db.config.ai_default_model
+        self.ai_models = list(self.db.config.ai_models)
+        self.ai_models_endpoint = self.db.config.ai_models_endpoint
+        self.ai_request_timeout_seconds = self.db.config.ai_request_timeout_seconds
+        self.ai_allow_database_write = self.db.config.ai_allow_database_write
+        self.ai_confirm_delete_actions = self.db.config.ai_confirm_delete_actions
+        self.ai_confirm_bulk_actions = self.db.config.ai_confirm_bulk_actions
         self.shortcut_sequences = dict(self.db.config.ui_shortcuts)
         self.task_sort_column = 0
         self.task_sort_order = Qt.SortOrder.AscendingOrder
@@ -148,12 +160,17 @@ class MindTaskWindow(
         QTimer.singleShot(0, self.position_sidebar_action_button)
 
     def handle_unavailable_database_if_needed(self, exc: Exception) -> bool:
-        if not isinstance(exc, (DatabaseMissingError, DatabaseInvalidError)):
+        if not isinstance(exc, (DatabaseMissingError, DatabaseInvalidError, DatabaseMigrationRequiredError)):
             return False
-        reason = "missing" if isinstance(exc, DatabaseMissingError) else "invalid"
+        if isinstance(exc, DatabaseMissingError):
+            reason = "missing"
+        elif isinstance(exc, DatabaseMigrationRequiredError):
+            reason = "migration"
+        else:
+            reason = "invalid"
         dialog = DatabaseUnavailableDialog(
             config_path=self.config_path,
-            database_path=str(exc),
+            database_path=getattr(exc, "database_path", str(exc)),
             language=self.language,
             reason=reason,
             parent=self,
@@ -193,8 +210,10 @@ class MindTaskWindow(
         self.tasks_page = self._build_tasks_page()
         self._build_projects_drawer_animation()
         self._build_history_drawer_animation()
+        self.ai_chat_page = self._build_ai_chat_page()
         self.settings_page = self._build_settings_page()
         self.page_stack.addWidget(self.tasks_page)
+        self.page_stack.addWidget(self.ai_chat_page)
         self.page_stack.addWidget(self.settings_page)
         layout.addWidget(self.page_stack, 1)
         layout.addWidget(self._build_bottom_navigation())
@@ -206,7 +225,7 @@ class MindTaskWindow(
         handlers = {
             "open_tasks": lambda: self.switch_page(0),
             "open_projects": self.shortcut_open_projects,
-            "open_settings": lambda: self.switch_page(1),
+            "open_settings": lambda: self.switch_page(2),
             "new_task": self.shortcut_new_task,
             "focus_search": self.shortcut_focus_search,
             "escape_tasks": self.shortcut_escape_tasks,
@@ -281,12 +300,16 @@ class MindTaskWindow(
         self.tasks_nav_button = QPushButton()
         self.tasks_nav_button.setObjectName("NavButtonActive")
         self.tasks_nav_button.clicked.connect(lambda: self.switch_page(0))
+        self.ai_nav_button = QPushButton()
+        self.ai_nav_button.setObjectName("NavButton")
+        self.ai_nav_button.clicked.connect(lambda: self.switch_page(1))
         self.settings_nav_button = QPushButton()
         self.settings_nav_button.setObjectName("NavButton")
-        self.settings_nav_button.clicked.connect(lambda: self.switch_page(1))
+        self.settings_nav_button.clicked.connect(lambda: self.switch_page(2))
 
         layout.addStretch()
         layout.addWidget(self.tasks_nav_button)
+        layout.addWidget(self.ai_nav_button)
         layout.addWidget(self.settings_nav_button)
         layout.addStretch()
         return panel
@@ -598,9 +621,9 @@ class MindTaskWindow(
         header_row.addWidget(self.close_history_drawer_button)
         layout.addWidget(header)
 
-        self.history_drawer_table = QTableWidget(0, 6)
+        self.history_drawer_table = QTableWidget(0, 8)
         self.history_drawer_table.setObjectName("TaskTable")
-        self.history_drawer_table.setHorizontalHeaderLabels(["ID", "", "", "", "", ""])
+        self.history_drawer_table.setHorizontalHeaderLabels(["ID", "", "", "", "", "", "", ""])
         self.history_drawer_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.history_drawer_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.history_drawer_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -611,6 +634,8 @@ class MindTaskWindow(
         self.history_drawer_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self.history_drawer_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         self.history_drawer_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        self.history_drawer_table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
+        self.history_drawer_table.horizontalHeader().setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
         layout.addWidget(self.history_drawer_table, 1)
 
         button_row = QHBoxLayout()
@@ -657,6 +682,7 @@ class MindTaskWindow(
     def retranslate_ui(self) -> None:
         self.setWindowTitle("MindTask")
         self.tasks_nav_button.setText(self.tr("tasks"))
+        self.ai_nav_button.setText(self.tr("settings_ai"))
         self.settings_nav_button.setText(self.tr("settings"))
 
         self.search_edit.setPlaceholderText(self.tr("search_tasks"))
@@ -707,7 +733,16 @@ class MindTaskWindow(
         self.close_history_drawer_button.setToolTip(self.tr("close"))
         self.close_history_drawer_button.setAccessibleName(self.tr("close"))
         self.history_drawer_table.setHorizontalHeaderLabels(
-            ["ID", self.tr("created"), self.tr("action"), self.tr("entity"), self.tr("state"), self.tr("undone")]
+            [
+                "ID",
+                self.tr("created"),
+                self.tr("action"),
+                self.tr("entity"),
+                self.tr("history_source"),
+                self.tr("history_ai_batch"),
+                self.tr("state"),
+                self.tr("undone"),
+            ]
         )
         self.history_pagination_controls.set_tooltips(
             self.tr("previous_page"),
@@ -735,6 +770,7 @@ class MindTaskWindow(
         self._update_project_sort_indicator()
 
         self.retranslate_settings_ui()
+        self.retranslate_ai_chat_page()
         self._retranslate_choice_controls()
         self.due_editor.retranslate(self.language)
         self.refresh_current_task_detail_text()
@@ -764,6 +800,8 @@ class MindTaskWindow(
         self.refresh_projects()
         self.refresh_project_table()
         self.refresh_tasks(force_detail=True)
+        if hasattr(self, "ai_chat_session_list"):
+            self.refresh_ai_chat_sessions()
         return True
 
     def switch_page(self, index: int) -> None:
@@ -774,14 +812,23 @@ class MindTaskWindow(
         self.page_stack.setCurrentIndex(index)
         if index == 0:
             self.tasks_nav_button.setObjectName("NavButtonActive")
+            self.ai_nav_button.setObjectName("NavButton")
             self.settings_nav_button.setObjectName("NavButton")
             self.refresh_tasks(force_detail=True)
         elif index == 1:
             self.tasks_nav_button.setObjectName("NavButton")
+            self.ai_nav_button.setObjectName("NavButtonActive")
+            self.settings_nav_button.setObjectName("NavButton")
+            self.refresh_ai_chat_sessions()
+        elif index == 2:
+            self.tasks_nav_button.setObjectName("NavButton")
+            self.ai_nav_button.setObjectName("NavButton")
             self.settings_nav_button.setObjectName("NavButtonActive")
             self.show_settings_status()
         self.tasks_nav_button.style().unpolish(self.tasks_nav_button)
         self.tasks_nav_button.style().polish(self.tasks_nav_button)
+        self.ai_nav_button.style().unpolish(self.ai_nav_button)
+        self.ai_nav_button.style().polish(self.ai_nav_button)
         self.settings_nav_button.style().unpolish(self.settings_nav_button)
         self.settings_nav_button.style().polish(self.settings_nav_button)
 
@@ -1206,6 +1253,10 @@ class MindTaskWindow(
         self._update_detail_field_states()
 
     def eventFilter(self, watched: object, event: QEvent) -> bool:
+        if hasattr(self, "handle_ai_chat_viewport_event") and self.handle_ai_chat_viewport_event(watched, event):
+            return True
+        if hasattr(self, "handle_ai_api_key_event") and self.handle_ai_api_key_event(watched, event):
+            return True
         if watched == self.description_preview.viewport() and event.type() == QEvent.Type.MouseButtonPress:
             if self.description_preview.anchorAt(event.position().toPoint()):
                 return False
@@ -1355,11 +1406,15 @@ class MindTaskWindow(
             entity_id = f"#{history['entity_id']}" if history.get("entity_id") is not None else ""
             action = history["action"]
             entity_type = history["entity_type"]
+            source = str(history.get("source") or "user")
+            ai_batch_id = history.get("ai_batch_id")
             values = [
                 history["id"],
                 history["created_at"],
                 self.tr(HISTORY_ACTION_TRANSLATION_KEYS.get(action, action)),
                 f"{self.tr(HISTORY_ENTITY_TRANSLATION_KEYS.get(entity_type, entity_type))}{entity_id}",
+                self.tr("source_ai") if source == "ai" else self.tr("source_user"),
+                f"#{ai_batch_id}" if ai_batch_id is not None else "",
                 self.tr("undone") if history.get("undone_at") else self.tr("active"),
                 history.get("undone_at") or "",
             ]
@@ -1371,7 +1426,7 @@ class MindTaskWindow(
                 if column == 0:
                     item.setData(Qt.ItemDataRole.UserRole, history["id"])
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                if column == 4:
+                if column == 6:
                     history_colors = badge_colors_for_theme(self.theme, QApplication.instance())["history"]
                     badge = history_colors["undone" if history.get("undone_at") else "active"]
                     item.setForeground(QColor(badge[0]))
@@ -1575,7 +1630,7 @@ def _with_unavailable_database_handler(method: Any) -> Any:
         self._database_guard_depth = getattr(self, "_database_guard_depth", 0) + 1
         try:
             return method(self, *args, **kwargs)
-        except (DatabaseMissingError, DatabaseInvalidError) as exc:
+        except (DatabaseMissingError, DatabaseInvalidError, DatabaseMigrationRequiredError) as exc:
             self.handle_unavailable_database_if_needed(exc)
             if self._database_guard_depth > 1:
                 raise _DatabaseUnavailableHandled()
