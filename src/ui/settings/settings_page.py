@@ -30,6 +30,7 @@ from ..shared.alert_message import ALERT_INFO, AlertMessage
 from ..shared.constants import THEME_TRANSLATION_KEYS
 from ..shared.i18n import LANGUAGE_LABELS, LANGUAGE_OPTIONS
 from .database_settings import DatabaseSettingsMixin
+from .ai_settings import AISettingsMixin
 from .shortcut_settings import ShortcutSettingsMixin
 from ..shared.style import THEME_OPTIONS
 from .toggle_switch import ToggleSwitch
@@ -38,7 +39,7 @@ from .toggle_switch import ToggleSwitch
 SIDEBAR_WIDTH = 220
 
 
-class SettingsPageMixin(DatabaseSettingsMixin, ShortcutSettingsMixin):
+class SettingsPageMixin(AISettingsMixin, DatabaseSettingsMixin, ShortcutSettingsMixin):
     """Mixin for settings UI layout and settings-specific commands."""
 
     def expanding_size_policy(self) -> QSizePolicy:
@@ -75,11 +76,13 @@ class SettingsPageMixin(DatabaseSettingsMixin, ShortcutSettingsMixin):
 
         general_panel = self._build_general_settings_panel()
         database_panel = self._build_database_settings_panel()
+        ai_panel = self._build_ai_settings_panel()
         shortcut_panel = self._build_shortcut_settings_panel()
         about_panel = self._build_about_settings_panel()
 
         self.settings_stack.addWidget(self._settings_scroll_area(general_panel))
         self.settings_stack.addWidget(self._settings_scroll_area(database_panel))
+        self.settings_stack.addWidget(self._settings_scroll_area(ai_panel))
         self.settings_stack.addWidget(self._settings_scroll_area(shortcut_panel))
         self.settings_stack.addWidget(self._settings_scroll_area(about_panel))
         self.settings_section_list.setCurrentRow(0)
@@ -239,6 +242,7 @@ class SettingsPageMixin(DatabaseSettingsMixin, ShortcutSettingsMixin):
         self._update_hide_completed_tasks_switch_text()
         self.retranslate_shortcut_settings()
         self.retranslate_database_settings()
+        self.retranslate_ai_settings()
         self._retranslate_theme_combo()
         self._refresh_about_settings_info()
 
@@ -257,6 +261,7 @@ class SettingsPageMixin(DatabaseSettingsMixin, ShortcutSettingsMixin):
         labels = [
             self.tr("settings_general"),
             self.tr("settings_data"),
+            self.tr("settings_ai"),
             self.tr("keyboard_shortcuts"),
             self.tr("settings_about"),
         ]

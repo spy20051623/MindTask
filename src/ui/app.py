@@ -27,7 +27,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         raise
 
     try:
-        from ..core import DatabaseInvalidError, DatabaseMissingError, find_config_path, load_config
+        from ..core import DatabaseInvalidError, DatabaseMigrationRequiredError, DatabaseMissingError, find_config_path, load_config
 
         config_path = find_config_path()
         first_run = config_path is None
@@ -59,12 +59,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         try:
             window = MindTaskWindow(config_path=str(config_path))
             break
-        except (DatabaseMissingError, DatabaseInvalidError) as exc:
+        except (DatabaseMissingError, DatabaseInvalidError, DatabaseMigrationRequiredError) as exc:
             language = load_config(str(config_path)).ui_language
-            reason = "missing" if isinstance(exc, DatabaseMissingError) else "invalid"
+            if isinstance(exc, DatabaseMissingError):
+                reason = "missing"
+            elif isinstance(exc, DatabaseMigrationRequiredError):
+                reason = "migration"
+            else:
+                reason = "invalid"
             dialog = DatabaseUnavailableDialog(
                 config_path=str(config_path),
-                database_path=str(exc),
+                database_path=getattr(exc, "database_path", str(exc)),
                 language=language,
                 reason=reason,
             )

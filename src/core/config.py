@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import configparser
+import json
 import os
 import shutil
 import sys
@@ -40,6 +41,15 @@ class MindTaskConfig:
     ui_language: str = "en"
     smart_task_sorting: bool = True
     hide_completed_tasks: bool = False
+    ai_base_url: str = ""
+    ai_api_key: str = ""
+    ai_default_model: str = ""
+    ai_models: list[str] = field(default_factory=list)
+    ai_models_endpoint: str = ""
+    ai_request_timeout_seconds: int = 30
+    ai_allow_database_write: bool = False
+    ai_confirm_delete_actions: bool = True
+    ai_confirm_bulk_actions: bool = True
     ui_shortcuts: Dict[str, str] = field(default_factory=lambda: dict(DEFAULT_UI_SHORTCUTS))
 
 
@@ -101,6 +111,17 @@ def load_config(config_path: Optional[str] = None) -> MindTaskConfig:
         ui_language = "en"
     smart_task_sorting = parser.getboolean("ui", "smart_task_sorting", fallback=True)
     hide_completed_tasks = parser.getboolean("ui", "hide_completed_tasks", fallback=False)
+    ai_base_url = parser.get("ai", "base_url", fallback="").strip()
+    ai_api_key = parser.get("ai", "api_key", fallback="").strip()
+    ai_default_model = parser.get("ai", "default_model", fallback="").strip()
+    ai_models = parse_ai_models(parser.get("ai", "models", fallback="[]"))
+    ai_models_endpoint = parser.get("ai", "models_endpoint", fallback="").strip()
+    ai_request_timeout_seconds = parser.getint("ai", "request_timeout_seconds", fallback=30)
+    if ai_request_timeout_seconds < 0:
+        ai_request_timeout_seconds = 30
+    ai_allow_database_write = parser.getboolean("ai", "allow_database_write", fallback=False)
+    ai_confirm_delete_actions = parser.getboolean("ai", "confirm_delete_actions", fallback=True)
+    ai_confirm_bulk_actions = parser.getboolean("ai", "confirm_bulk_actions", fallback=True)
     ui_shortcuts = {
         action: parser.get("shortcuts", action, fallback=default_sequence).strip()
         for action, default_sequence in DEFAULT_UI_SHORTCUTS.items()
@@ -113,6 +134,15 @@ def load_config(config_path: Optional[str] = None) -> MindTaskConfig:
         ui_language=ui_language,
         smart_task_sorting=smart_task_sorting,
         hide_completed_tasks=hide_completed_tasks,
+        ai_base_url=ai_base_url,
+        ai_api_key=ai_api_key,
+        ai_default_model=ai_default_model,
+        ai_models=ai_models,
+        ai_models_endpoint=ai_models_endpoint,
+        ai_request_timeout_seconds=ai_request_timeout_seconds,
+        ai_allow_database_write=ai_allow_database_write,
+        ai_confirm_delete_actions=ai_confirm_delete_actions,
+        ai_confirm_bulk_actions=ai_confirm_bulk_actions,
         ui_shortcuts=ui_shortcuts,
     )
 
@@ -129,6 +159,8 @@ def _read_writable_config(config_path: Optional[str] = None) -> tuple[Path, conf
         parser["ui"] = {}
     if "shortcuts" not in parser:
         parser["shortcuts"] = {}
+    if "ai" not in parser:
+        parser["ai"] = {}
 
     parser["database"].setdefault("path", "data/mindtask.db")
     parser["database"].pop("schema", None)
@@ -139,6 +171,15 @@ def _read_writable_config(config_path: Optional[str] = None) -> tuple[Path, conf
     parser["ui"].setdefault("smart_task_sorting", "true")
     parser["ui"].setdefault("hide_completed_tasks", "false")
     parser["ui"].pop("due_day_end", None)
+    parser["ai"].setdefault("base_url", "")
+    parser["ai"].setdefault("api_key", "")
+    parser["ai"].setdefault("default_model", "")
+    parser["ai"].setdefault("models", "[]")
+    parser["ai"].setdefault("models_endpoint", "")
+    parser["ai"].setdefault("request_timeout_seconds", "30")
+    parser["ai"].setdefault("allow_database_write", "false")
+    parser["ai"].setdefault("confirm_delete_actions", "true")
+    parser["ai"].setdefault("confirm_bulk_actions", "true")
     for action in list(parser["shortcuts"]):
         if action not in DEFAULT_UI_SHORTCUTS:
             parser["shortcuts"].pop(action, None)
@@ -234,6 +275,88 @@ def save_smart_task_sorting(enabled: bool, config_path: Optional[str] = None) ->
 def save_hide_completed_tasks(enabled: bool, config_path: Optional[str] = None) -> None:
     path, parser = _read_writable_config(config_path)
     parser["ui"]["hide_completed_tasks"] = "true" if enabled else "false"
+    _write_config(path, parser)
+
+
+def parse_ai_models(value: str) -> list[str]:
+    """Parse the configured AI model list."""
+    value = (value or "").strip()
+    if not value:
+        return []
+    try:
+        data = json.loads(value)
+    except json.JSONDecodeError:
+        return [item.strip() for item in value.split(",") if item.strip()]
+    if not isinstance(data, list):
+        return []
+    models: list[str] = []
+    for item in data:
+        text = str(item).strip()
+        if text and text not in models:
+            models.append(text)
+    return models
+
+
+def serialize_ai_models(models: list[str]) -> str:
+    """Serialize AI model names for the config file."""
+    unique_models: list[str] = []
+    for model in models:
+        text = str(model).strip()
+        if text and text not in unique_models:
+            unique_models.append(text)
+    return json.dumps(unique_models, ensure_ascii=False)
+
+
+def mask_api_key(api_key: str) -> str:
+    """Return a display-only masked API key."""
+    api_key = (api_key or "").strip()
+    if not api_key:
+        return ""
+    if len(api_key) <= 16:
+        return api_key
+    return f"{api_key[:8]}{'*' * (len(api_key) - 16)}{api_key[-8:]}"
+
+
+def save_ai_settings(
+    *,
+    base_url: str,
+    api_key: str,
+    default_model: str,
+    models: list[str],
+    models_endpoint: str,
+    request_timeout_seconds: int,
+    allow_database_write: bool,
+    confirm_delete_actions: bool,
+    confirm_bulk_actions: bool,
+    config_path: Optional[str] = None,
+) -> None:
+    path, parser = _read_writable_config(config_path)
+    timeout = int(request_timeout_seconds)
+    if timeout < 0:
+        timeout = 30
+    parser["ai"]["base_url"] = base_url.strip()
+    parser["ai"]["api_key"] = api_key.strip()
+    parser["ai"]["default_model"] = default_model.strip()
+    parser["ai"]["models"] = serialize_ai_models(models)
+    parser["ai"]["models_endpoint"] = models_endpoint.strip()
+    parser["ai"]["request_timeout_seconds"] = str(timeout)
+    parser["ai"]["allow_database_write"] = "true" if allow_database_write else "false"
+    parser["ai"]["confirm_delete_actions"] = "true" if confirm_delete_actions else "false"
+    parser["ai"]["confirm_bulk_actions"] = "true" if confirm_bulk_actions else "false"
+    _write_config(path, parser)
+
+
+def save_ai_execution_settings(
+    *,
+    allow_database_write: bool,
+    confirm_delete_actions: bool,
+    confirm_bulk_actions: bool,
+    config_path: Optional[str] = None,
+) -> None:
+    path, parser = _read_writable_config(config_path)
+    parser["ai"]["allow_database_write"] = "true" if allow_database_write else "false"
+    parser["ai"]["confirm_delete_actions"] = "true" if confirm_delete_actions else "false"
+    parser["ai"]["confirm_bulk_actions"] = "true" if confirm_bulk_actions else "false"
     _write_config(path, parser)
 
 

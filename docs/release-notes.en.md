@@ -16,6 +16,12 @@ Update it immediately before creating a release commit, not after every local ch
 
 ## Entries
 
+## 1.3.0 - 2026-05-25
+
+- Summary: Coming soon.
+- Changed: Coming soon.
+- Verified: Coming soon.
+
 ## 1.2.11 - 2026-05-23
 
 - Summary: Make desktop startup safer by separating first-run setup from unavailable database handling.

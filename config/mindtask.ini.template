@@ -7,6 +7,17 @@ language = en
 smart_task_sorting = true
 hide_completed_tasks = false
 
+[ai]
+base_url =
+api_key =
+default_model =
+models = []
+models_endpoint =
+request_timeout_seconds = 30
+allow_database_write = false
+confirm_delete_actions = true
+confirm_bulk_actions = true
+
 [shortcuts]
 open_tasks = Ctrl+1
 open_settings = Ctrl+2

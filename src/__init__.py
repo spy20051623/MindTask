@@ -1,9 +1,7 @@
 """MindTask package."""
 
 from .core import MindTaskDB
-
-__version__ = "1.2.11"
-__author__ = "PY Shu"
+from .version import __author__, __version__
 
 __all__ = [
     "MindTaskDB",

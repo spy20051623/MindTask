@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from ...core import MindTaskDB
+from ...core.migrations import database_schema_version, has_required_schema_elements
 from ...core.config import DEFAULT_UI_SHORTCUTS, MindTaskConfig, get_default_database_path, load_config
 
 
@@ -51,6 +52,19 @@ class NewDatabaseTarget:
     exists: bool
 
 
+@dataclass(frozen=True)
+class MigratedDatabase:
+    db: MindTaskDB
+    backup_path: Path
+
+
+@dataclass(frozen=True)
+class DatabaseInspection:
+    path: Path
+    stored_version: Optional[str]
+    has_required_schema_elements: bool
+
+
 class DatabaseFileService:
     """High-level database file workflow used by settings and setup UI."""
 
@@ -63,6 +77,28 @@ class DatabaseFileService:
         db = self._open_database_from_path(path, create_if_missing=False)
         db.get_tasks(limit=1)
         return db
+
+    def inspect_existing_database(self, path_text: str) -> DatabaseInspection:
+        path = self._validate_existing_database_path(path_text)
+        with closing(sqlite3.connect(f"{path.as_uri()}?mode=rw", uri=True)) as conn:
+            conn.row_factory = sqlite3.Row
+            return DatabaseInspection(
+                path=path,
+                stored_version=database_schema_version(conn),
+                has_required_schema_elements=has_required_schema_elements(conn),
+            )
+
+    def migrate_database(self, path_text: str, migration_start_version: Optional[str] = None) -> MigratedDatabase:
+        path = self._validate_existing_database_path(path_text)
+        backup_path = self.backup_database(str(path), str(self.default_migration_backup_path(path)))
+        db = self._open_database_from_path(
+            path,
+            create_if_missing=False,
+            migrate_if_needed=True,
+            migration_start_version=migration_start_version,
+        )
+        db.get_tasks(limit=1)
+        return MigratedDatabase(db=db, backup_path=backup_path)
 
     def inspect_new_database_target(self, path_text: str) -> NewDatabaseTarget:
         path = self._validate_database_output_path(path_text, allow_existing_file=True)
@@ -90,6 +126,11 @@ class DatabaseFileService:
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         return source.with_name(f"{source.stem}-backup-{timestamp}{source.suffix or '.db'}")
 
+    def default_migration_backup_path(self, source_path: Path) -> Path:
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        suffix = source_path.suffix or ".db"
+        return source_path.with_name(f"{source_path.stem}-before-migration-{timestamp}{suffix}")
+
     def backup_database(self, source_path_text: str, target_path_text: str) -> Path:
         source = self._validate_existing_database_path(source_path_text)
         target = self._validate_database_output_path(target_path_text, allow_existing_file=True)
@@ -99,7 +140,13 @@ class DatabaseFileService:
             raise DatabasePathError("could_not_backup_database", error=exc) from exc
         return target
 
-    def _open_database_from_path(self, database_path: Path, create_if_missing: bool) -> MindTaskDB:
+    def _open_database_from_path(
+        self,
+        database_path: Path,
+        create_if_missing: bool,
+        migrate_if_needed: bool = False,
+        migration_start_version: Optional[str] = None,
+    ) -> MindTaskDB:
         if Path(self.config_path).exists():
             config = load_config(self.config_path)
         else:
@@ -118,7 +165,12 @@ class DatabaseFileService:
             fh.write(f"smart_task_sorting = {'true' if config.smart_task_sorting else 'false'}\n")
             fh.write(f"hide_completed_tasks = {'true' if config.hide_completed_tasks else 'false'}\n")
         try:
-            return MindTaskDB(config_path=temp_config_path, create_if_missing=create_if_missing)
+            return MindTaskDB(
+                config_path=temp_config_path,
+                create_if_missing=create_if_missing,
+                migrate_if_needed=migrate_if_needed,
+                migration_start_version=migration_start_version,
+            )
         finally:
             Path(temp_config_path).unlink(missing_ok=True)
 
