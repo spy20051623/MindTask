@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from ...core import MindTaskDB
-from ...core.migrations import database_schema_version, has_required_schema_elements
+from ...core.migrations import database_schema_version
 from ...core.config import DEFAULT_UI_SHORTCUTS, MindTaskConfig, get_default_database_path, load_config
 
 
@@ -62,7 +62,6 @@ class MigratedDatabase:
 class DatabaseInspection:
     path: Path
     stored_version: Optional[str]
-    has_required_schema_elements: bool
 
 
 class DatabaseFileService:
@@ -85,7 +84,6 @@ class DatabaseFileService:
             return DatabaseInspection(
                 path=path,
                 stored_version=database_schema_version(conn),
-                has_required_schema_elements=has_required_schema_elements(conn),
             )
 
     def migrate_database(self, path_text: str, migration_start_version: Optional[str] = None) -> MigratedDatabase:

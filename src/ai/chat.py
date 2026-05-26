@@ -6,20 +6,19 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
-from .ai_client import OpenAICompatibleClient
-from .ai_protocol import actions_from_fallback_text, actions_from_openai_message
-from .ai_prompts import (
+from .client import OpenAICompatibleClient
+from .protocol import actions_from_fallback_text, actions_from_openai_message
+from .prompts import (
     assistant_visible_content,
     date_time_context_prompt,
-    operation_sequence_approved_prompt,
     operation_sequence_executed_prompt,
     operation_sequence_failed_prompt,
     operation_sequence_rejected_prompt,
     operation_retry_prompt,
     system_prompt,
 )
-from .ai_tools import AIToolExecutor, ToolExecutionPolicy, WRITE_TOOLS, WRITE_TOOL_RESULT_SUCCESS, openai_tool_definitions
-from .database import MindTaskDB
+from .tools import AIToolExecutor, ToolExecutionPolicy, WRITE_TOOLS, WRITE_TOOL_RESULT_SUCCESS, openai_tool_definitions
+from ..core.database import MindTaskDB
 
 
 @dataclass(frozen=True)
@@ -660,18 +659,15 @@ class AIChatService:
         messages: List[Dict[str, Any]] = []
         for row in self.db.get_ai_chat_messages(session_id):
             role = row["role"]
-            if role not in {"user", "assistant", "tool", "system"}:
+            if role not in {"user", "assistant", "system"}:
                 continue
             content = row.get("content") or ""
-            metadata = self._message_metadata(row)
             if role == "user":
                 message: Dict[str, Any] = {"role": "user", "content": content}
             elif role == "assistant":
                 message = {"role": "assistant", "content": content}
-            elif role == "tool":
-                message = {"role": "system", "content": "Legacy MindTask tool result:\n" + content}
             else:
-                message = {"role": "system", "content": self._provider_system_content(content)}
+                message = {"role": "system", "content": content}
             messages.append(message)
         return messages
 
@@ -789,20 +785,6 @@ class AIChatService:
         else:
             failed_index = min(max(len(results), 1), max(len(actions), 1))
         return operation_sequence_failed_prompt(failed_index, action_results)
-
-    def _provider_system_content(self, content: str) -> str:
-        if content.startswith("System event: The user approved all requested MindTask operations."):
-            return operation_sequence_approved_prompt()
-        if content.startswith("System event: The user rejected operation #"):
-            marker = "operation #"
-            try:
-                operation_index = int(content.split(marker, 1)[1].split(".", 1)[0])
-            except (IndexError, ValueError):
-                operation_index = 1
-            return operation_sequence_rejected_prompt(operation_index)
-        if content.startswith("System event: MindTask stopped the requested operation sequence"):
-            return operation_sequence_failed_prompt(1)
-        return content
 
     def _session_title_from_message(self, text: str) -> str:
         return text[:40]
