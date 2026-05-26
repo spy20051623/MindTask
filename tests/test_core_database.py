@@ -4,21 +4,20 @@ import time
 import json
 from contextlib import closing
 
-from src.core import (
+from src.ai import (
     ACTIONS_JSON_END,
     ACTIONS_JSON_START,
     AIProtocolError,
     AIChatService,
     AIToolExecutor,
-    DatabaseMigrationRequiredError,
-    DatabaseMissingError,
-    MindTaskDB,
     ToolExecutionPolicy,
     assistant_visible_content,
     actions_from_fallback_text,
     actions_from_openai_message,
-    system_prompt_with_context,
+    date_time_context_prompt,
+    system_prompt,
 )
+from src.core import DatabaseMigrationRequiredError, DatabaseMissingError, MindTaskDB
 from src.core.config import ensure_config_exists, load_config, mask_api_key, save_ai_settings, save_hide_completed_tasks
 from src.version import __version__
 import pytest
@@ -443,11 +442,17 @@ def test_ai_protocol_reads_tool_calls_and_fixed_json_block():
 
 
 def test_ai_system_prompt_includes_current_time_context():
-    prompt = system_prompt_with_context(datetime(2026, 5, 24, 19, 30, 0))
+    prompt = system_prompt()
+    context_prompt = date_time_context_prompt(datetime(2026, 5, 24, 19, 30, 0))
 
-    assert "Now: 2026-05-24 19:30:00" in prompt
-    assert "Today: 2026-05-24" in prompt
-    assert "tomorrow" in prompt
+    assert "MindTask is a desktop task manager" in prompt
+    assert "Now:" not in prompt
+    assert "Today:" not in prompt
+    assert "MindTask runtime context for the next user message" in context_prompt
+    assert "This context applies to the next user message only." in context_prompt
+    assert "Now: 2026-05-24 19:30:00" in context_prompt
+    assert "Today: 2026-05-24" in context_prompt
+    assert "tomorrow" in context_prompt
 
 
 def test_ai_assistant_visible_content_removes_reasoning():
@@ -600,28 +605,18 @@ def test_ai_chat_service_runs_tool_round_and_stores_messages(tmp_path):
     assert fake_client.calls == 2
     second_messages = fake_client.seen_messages[1]
     assert any(
-        message["role"] == "assistant"
-        and message.get("tool_calls")
-        and message["tool_calls"][0]["id"] == "call-1"
-        for message in second_messages
-    )
-    assert any(
-        message["role"] == "tool"
-        and message.get("tool_call_id") == "call-1"
-        and '"status": "ok"' in message["content"]
-        for message in second_messages
-    )
-    assert any(
         message["role"] == "system"
-        and "approved all requested operations" in message["content"]
+        and "Operation results:" in message["content"]
+        and "create_task" in message["content"]
         for message in second_messages
     )
     assert db.get_tasks()[0]["title"] == "AI planned task"
     assert len(db.get_ai_operation_batches()) == 1
     assert [message["role"] for message in db.get_ai_chat_messages(result.session_id)] == [
+        "system",
+        "system",
         "user",
         "assistant",
-        "tool",
         "system",
         "assistant",
     ]
@@ -639,8 +634,8 @@ def test_ai_chat_service_stores_first_user_message_before_ai_reply(tmp_path):
             sessions = self.db.get_ai_chat_sessions()
             assert len(sessions) == 1
             stored_messages = self.db.get_ai_chat_messages(sessions[0]["id"])
-            assert [message["role"] for message in stored_messages] == ["user"]
-            assert stored_messages[0]["content"] == "Store me first"
+            assert [message["role"] for message in stored_messages] == ["system", "system", "user"]
+            assert stored_messages[-1]["content"] == "Store me first"
             return {"content": "Stored."}
 
     config_path = write_config(tmp_path)
@@ -664,7 +659,12 @@ def test_ai_chat_service_stores_first_user_message_before_ai_reply(tmp_path):
     ).send_user_message("Store me first")
 
     assert result.status == "ok"
-    assert [message["role"] for message in db.get_ai_chat_messages(result.session_id)] == ["user", "assistant"]
+    assert [message["role"] for message in db.get_ai_chat_messages(result.session_id)] == [
+        "system",
+        "system",
+        "user",
+        "assistant",
+    ]
 
 
 def test_ai_chat_service_returns_pending_actions_when_permission_blocks(tmp_path):
@@ -713,7 +713,7 @@ def test_ai_chat_service_returns_pending_actions_when_permission_blocks(tmp_path
     assert db.get_tasks() == []
     assert db.get_ai_operation_batches() == []
     messages = db.get_ai_chat_messages(result.session_id)
-    assert [message["role"] for message in messages] == ["user", "assistant"]
+    assert [message["role"] for message in messages] == ["system", "system", "user", "assistant"]
     pending = db.get_pending_ai_approval(result.session_id)
     assert pending is not None
     assert pending["id"] == result.assistant_message_id

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterator, List, Optional
 from urllib.parse import urljoin, urlparse
 
-from .config import MindTaskConfig
+from ..core.config import MindTaskConfig
 
 
 class AIClientError(RuntimeError):

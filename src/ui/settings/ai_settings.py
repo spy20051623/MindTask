@@ -16,7 +16,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ...core import OpenAICompatibleClient, mask_api_key, save_ai_execution_settings, save_ai_settings
+from ...ai import OpenAICompatibleClient
+from ...core import load_config, mask_api_key, save_ai_execution_settings, save_ai_settings
 from ..shared.alert_message import ALERT_DANGER, ALERT_INFO, AlertMessage
 from .toggle_switch import ToggleSwitch
 
@@ -394,9 +395,7 @@ class AISettingsMixin:
             )
             return
 
-        self.ai_allow_database_write = self.ai_allow_database_write_switch.isChecked()
-        self.ai_confirm_delete_actions = self.ai_confirm_delete_actions_switch.isChecked()
-        self.ai_confirm_bulk_actions = self.ai_confirm_bulk_actions_switch.isChecked()
+        self.reload_ai_settings_from_config()
         self.show_inline_message(self.ai_execution_message, self.tr("ai_execution_settings_saved"), ALERT_INFO)
 
     def _ai_models_from_text(self) -> list[str]:
@@ -459,18 +458,23 @@ class AISettingsMixin:
             )
             return
 
-        self.ai_base_url = self.ai_base_url_edit.text().strip()
-        self.ai_api_key = self._ai_api_key_from_form()
-        self.ai_default_model = self.ai_default_model_edit.text().strip()
-        self.ai_models = self._ai_models_from_text()
-        self.ai_models_endpoint = self.ai_models_endpoint_edit.text().strip()
-        self.ai_request_timeout_seconds = int(self.ai_timeout_combo.currentData() or 0)
-        self.ai_allow_database_write = self.ai_allow_database_write_switch.isChecked()
-        self.ai_confirm_delete_actions = self.ai_confirm_delete_actions_switch.isChecked()
-        self.ai_confirm_bulk_actions = self.ai_confirm_bulk_actions_switch.isChecked()
+        self.reload_ai_settings_from_config()
         self.ai_api_key_edit.setText("")
         self.ai_api_key_edit.setPlaceholderText(mask_api_key(self.ai_api_key))
         self.ai_api_key_edit.setEchoMode(QLineEdit.EchoMode.Normal)
         self.ai_api_key_edit.setProperty("storedApiKey", self.ai_api_key)
         self.ai_api_key_edit.setProperty("showingMaskedKey", bool(self.ai_api_key))
         self.show_inline_message(self.ai_settings_message, self.tr("ai_settings_saved"), ALERT_INFO)
+
+    def reload_ai_settings_from_config(self) -> None:
+        config = load_config(self.config_path)
+        self.db.config = config
+        self.ai_base_url = config.ai_base_url
+        self.ai_api_key = config.ai_api_key
+        self.ai_default_model = config.ai_default_model
+        self.ai_models = list(config.ai_models)
+        self.ai_models_endpoint = config.ai_models_endpoint
+        self.ai_request_timeout_seconds = config.ai_request_timeout_seconds
+        self.ai_allow_database_write = config.ai_allow_database_write
+        self.ai_confirm_delete_actions = config.ai_confirm_delete_actions
+        self.ai_confirm_bulk_actions = config.ai_confirm_bulk_actions

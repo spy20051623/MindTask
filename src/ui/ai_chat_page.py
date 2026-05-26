@@ -26,7 +26,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..core import AIChatService, AIChatTurnResult, MindTaskDB
+from ..ai import AIChatService, AIChatTurnResult
+from ..core import MindTaskDB
 from .shared.alert_message import ALERT_WARN, AlertMessage
 from .shared.icons import colored_icon, set_danger_button_icon
 from .tasks.markdown import render_markdown_html
@@ -598,7 +599,7 @@ class AIChatPageMixin:
         added = False
         for message in self.db.get_ai_chat_messages(self.ai_current_session_id):
             role = str(message.get("role") or "")
-            if role in {"tool", "system"}:
+            if role == "system":
                 continue
             label = self.tr(f"ai_role_{role}") if role in {"user", "assistant"} else role
             content = str(message.get("content") or "").strip()

@@ -7,6 +7,7 @@ from typing import Optional
 
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QComboBox,
     QDialog,
     QFileDialog,
     QHBoxLayout,
@@ -20,7 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..core import save_database_path
-from ..core.migrations import migration_start_version
+from ..core.migrations import available_migration_start_versions, migration_start_version
 from .settings.database_file_service import DatabaseFileService, DatabasePathError
 from .shared.alert_message import ALERT_DANGER, AlertMessage
 from .shared.dialog_helpers import confirm_question
@@ -76,10 +77,10 @@ class DatabaseUnavailableDialog(QDialog):
         path_row.addWidget(self.browse_button)
 
         self.version_label = QLabel()
-        self.version_edit = QLineEdit()
+        self.version_combo = QComboBox()
         version_row = QHBoxLayout()
         version_row.addWidget(self.version_label)
-        version_row.addWidget(self.version_edit, 1)
+        version_row.addWidget(self.version_combo, 1)
 
         self.finish_button = QPushButton()
         self.cancel_button = QPushButton()
@@ -128,6 +129,7 @@ class DatabaseUnavailableDialog(QDialog):
         self.migrate_radio.setText(self.tr("migrate_database"))
         self.migrate_radio.setVisible(self.reason == "migration")
         self.version_label.setText(self.tr("current_database_version"))
+        self.populate_migration_versions()
         self.new_radio.setText(self.tr("create_new_database"))
         self.browse_button.setText(self.tr("browse"))
         self.finish_button.setText(self.tr("finish"))
@@ -137,7 +139,18 @@ class DatabaseUnavailableDialog(QDialog):
     def update_migration_version_visibility(self) -> None:
         visible = self.reason == "migration" and self.migrate_radio.isChecked()
         self.version_label.setVisible(visible)
-        self.version_edit.setVisible(visible)
+        self.version_combo.setVisible(visible)
+
+    def populate_migration_versions(self) -> None:
+        current = self.version_combo.currentData()
+        versions = available_migration_start_versions()
+        self.version_combo.blockSignals(True)
+        self.version_combo.clear()
+        for version in versions:
+            self.version_combo.addItem(self.display_migration_version(version), version)
+        if current in versions:
+            self.select_migration_version(current)
+        self.version_combo.blockSignals(False)
 
     def refresh_migration_version(self) -> None:
         if self.reason != "migration":
@@ -146,21 +159,26 @@ class DatabaseUnavailableDialog(QDialog):
         service = DatabaseFileService(self.config_path, language=self.translator.language)
         try:
             inspected = service.inspect_existing_database(self.database_path_edit.text().strip())
-            self.version_edit.setText(self.display_migration_version(inspected.stored_version))
+            self.select_migration_version(migration_start_version(inspected.stored_version))
         except Exception:
-            self.version_edit.setText(self.tr("migration_version_legacy"))
+            self.select_migration_version(None)
         self.update_migration_version_visibility()
 
     def display_migration_version(self, version: Optional[str]) -> str:
-        if migration_start_version(version) is None:
+        if version is None:
             return self.tr("migration_version_legacy")
-        return str(version or "").strip()
+        return str(version).strip()
+
+    def select_migration_version(self, version: Optional[str]) -> None:
+        for index in range(self.version_combo.count()):
+            if self.version_combo.itemData(index) == version:
+                self.version_combo.setCurrentIndex(index)
+                return
+        if self.version_combo.count():
+            self.version_combo.setCurrentIndex(0)
 
     def selected_migration_start_version(self) -> Optional[str]:
-        version_text = self.version_edit.text().strip()
-        if not version_text or version_text == self.tr("migration_version_legacy"):
-            return None
-        return version_text
+        return self.version_combo.currentData()
 
     def browse_database_path(self) -> None:
         current = self.database_path_edit.text().strip() or self.database_path

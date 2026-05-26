@@ -51,10 +51,8 @@ CREATE TABLE IF NOT EXISTS ai_chat_sessions (
 CREATE TABLE IF NOT EXISTS ai_chat_messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id INTEGER NOT NULL,
-    role TEXT NOT NULL CHECK (role IN ('system', 'user', 'assistant', 'tool')),
+    role TEXT NOT NULL CHECK (role IN ('system', 'user', 'assistant')),
     content TEXT DEFAULT '',
-    tool_name TEXT DEFAULT '',
-    tool_call_id TEXT DEFAULT '',
     metadata_json TEXT DEFAULT '',
     created_at TIMESTAMP DEFAULT (datetime('now', 'localtime')),
     FOREIGN KEY (session_id) REFERENCES ai_chat_sessions (id) ON DELETE CASCADE

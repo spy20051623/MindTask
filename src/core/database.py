@@ -16,7 +16,6 @@ from .migrations import (
     DatabaseMigrationRequiredError,
     assert_current_schema_version,
     database_schema_version,
-    has_required_schema_elements,
     migrate_to_current,
     prepare_existing_schema_for_migrations,
     unspecified_migration_start_version,
@@ -165,10 +164,6 @@ class MindTaskDB:
     def database_schema_version(self) -> Optional[str]:
         with self._connect() as conn:
             return database_schema_version(conn)
-
-    def has_required_schema_elements(self) -> bool:
-        with self._connect() as conn:
-            return has_required_schema_elements(conn)
 
     def _row_dict(self, conn: sqlite3.Connection, table: str, row_id: int) -> Optional[Dict[str, Any]]:
         row = conn.execute(f"SELECT * FROM {table} WHERE id = ?", (row_id,)).fetchone()
@@ -791,11 +786,9 @@ class MindTaskDB:
         session_id: int,
         role: str,
         content: str = "",
-        tool_name: str = "",
-        tool_call_id: str = "",
         metadata: Optional[Dict[str, Any]] = None,
     ) -> int:
-        if role not in {"system", "user", "assistant", "tool"}:
+        if role not in {"system", "user", "assistant"}:
             raise ValueError("Unsupported AI chat message role.")
         with self._connect() as conn:
             if not conn.execute("SELECT 1 FROM ai_chat_sessions WHERE id = ?", (session_id,)).fetchone():
@@ -803,16 +796,14 @@ class MindTaskDB:
             cursor = conn.execute(
                 """
                 INSERT INTO ai_chat_messages (
-                    session_id, role, content, tool_name, tool_call_id, metadata_json, created_at
+                    session_id, role, content, metadata_json, created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?)
                 """,
                 (
                     session_id,
                     role,
                     content,
-                    tool_name,
-                    tool_call_id,
                     json.dumps(metadata or {}, ensure_ascii=False, sort_keys=True),
                     current_timestamp(),
                 ),

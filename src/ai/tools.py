@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable, Optional
 
-from .config import MindTaskConfig
-from .database import MindTaskDB
+from ..core.config import MindTaskConfig
+from ..core.database import MindTaskDB
 
 
 READ_TOOLS = {
